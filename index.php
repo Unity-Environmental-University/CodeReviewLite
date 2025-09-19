@@ -413,43 +413,82 @@ $err = $_GET['error'] ?? '';
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
 <style>
-  :root { --bg:#0b0d10; --card:#131720; --muted:#8b97a7; --text:#e8edf3; --accent:#7aa2ff; --ok:#16c27a; --warn:#f6c85f; --danger:#ff6b6b; }
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Arial}
+  :root { --bg:#080b16; --card:#11182b; --muted:#8ea4c0; --text:#f1f5ff; --accent:#6f9cff; --ok:#1cd38a; --warn:#f6c85f; --danger:#ff6b6b; --border:#222f4c; --surface:#0c1324; }
+  *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top,#0c1330 0%,#070913 60%,#06070c 100%);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Arial}
   a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px}
-  .card{background:var(--card);border:1px solid #20283a;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:18px;margin-bottom:18px}
-  h1,h2{margin:0 0 12px} h1{font-size:20px} h2{font-size:16px;color:#b9c3d3}
+  .wrap{max-width:1280px;margin:0 auto;padding:32px 36px 52px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:0 16px 40px rgba(3,8,20,.35);padding:22px;margin-bottom:22px;overflow:visible}
+  h1,h2{margin:0 0 12px} h1{font-size:22px} h2{font-size:17px;color:#c3d4f5}
   .row{display:flex;gap:12px;flex-wrap:wrap}
   .grow{flex:1}
-  input,select,textarea,button{background:#0e1320;color:var(--text);border:1px solid #26314a;border-radius:10px;padding:10px;font:14px Inter;width:100%}
-  button{cursor:pointer;background:linear-gradient(180deg,#1b2650,#121a36);border:1px solid #28345a}
-  button.primary{background:linear-gradient(180deg,#2b55ff,#1b3ad1);border-color:#3854e6}
+  input,select,textarea,button{background:var(--surface);color:var(--text);border:1px solid #2b3a5b;border-radius:12px;padding:10px;font:14px Inter;width:100%;transition:.2s border,.2s box-shadow}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(111,156,255,.25);outline:none}
+  button{cursor:pointer;background:linear-gradient(180deg,#18294d,#101b36);border:1px solid #2b3f6a}
+  button.primary{background:linear-gradient(180deg,#3b66ff,#1f3fd6);border-color:#3c5ee0;box-shadow:0 8px 18px rgba(63,110,255,.28)}
   .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace; font-size:12.5px}
   .file{margin-top:6px}
   .code{position:relative;border:1px solid #26314a;border-radius:12px;overflow:auto}
-  .linenos{counter-reset: line; padding-left: 0; margin:0}
-  .linenos li{display:block; white-space:pre; padding-left: 48px; position:relative}
-  .linenos li::before{counter-increment: line; content: counter(line); position:absolute; left:0; width:40px; text-align:right; color:#6a768a; padding-right:8px}
-  .code-line{cursor:pointer}
+  .linenos{counter-reset: line; padding-left: 0; margin:0; background:#101a32;border:1px solid #1d2c4f;border-radius:14px;overflow:auto}
+  .linenos li{display:block; white-space:pre; padding:8px 16px 8px 56px; position:relative; min-height:20px; line-height:1.35; scroll-margin-top:120px}
+  .linenos li::before{counter-increment: line; content: counter(line); position:absolute; left:16px; top:8px; width:30px; text-align:right; color:#5f7195; padding-right:6px}
+  .code-line{cursor:pointer; transition:background .15s; overflow-x:auto}
+  .code-line span{display:inline; white-space:pre}
   .hl{background: rgba(122,162,255,0.12)}
-  .comment{background:#0e1424;border:1px solid #273150;border-radius:10px;padding:10px;margin:10px 0}
+  .comment{background:#121e35;border:1px solid #23365f;border-radius:14px;padding:14px;margin:0;box-shadow:0 10px 28px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:break-word}
   .comment.small{font-size:12px;color:#b9c3d3}
-  .badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;border:1px solid #2d3b60;background:#0f1630}
+  .badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:12px;border:1px solid #2d3b60;background:#0f1630}
   .ok{color:#0fd58a;border-color:#0fd58a33}
   .badge.edit{color:#7aa2ff;border-color:#7aa2ff55}
   .muted{color:#9db0c6}
   .right{float:right}
   .flex{display:flex;gap:8px;align-items:center}
   .space{height:8px}
-  .sticky{position:sticky; top:0; background:var(--card); padding:8px; z-index:3; border-bottom:1px solid #20283a; border-top-left-radius:12px; border-top-right-radius:12px}
-  .pill{padding:5px 10px;border-radius:999px;background:#0e1320;border:1px solid #273150}
-  .suggestion{margin-top:10px;padding:10px;border-radius:10px;border:1px solid #26406c;background:#091024}
-  .suggestion pre{margin:6px 0 0;white-space:pre-wrap}
+  .sticky{position:sticky; top:-22px; background:rgba(13,21,42,.92); padding:12px; z-index:3; border:1px solid rgba(111,156,255,.15); border-radius:14px; backdrop-filter:blur(12px); margin-bottom:18px}
+  .pill{padding:5px 12px;border-radius:999px;background:rgba(19,31,60,.6);border:1px solid rgba(111,156,255,.25);color:#cdd9ff}
+  .suggestion{margin-top:10px;padding:10px;border-radius:10px;border:1px solid #26406c;background:#0b152b}
+  .suggestion pre{margin:6px 0 0;white-space:pre-wrap; word-break:break-word; overflow:auto}
   .mode-toggle{display:flex;gap:12px}
   .mode-toggle label{display:flex;align-items:center;gap:6px;color:#b9c3d3;font-size:13px}
   .mode-toggle input{margin:0}
   .close-editor{cursor:pointer}
-  .suggestion-fields textarea{width:100%;background:#0b1429;border:1px solid #2d416d;border-radius:8px;padding:8px;color:var(--text);font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
+  .suggestion-fields textarea{width:100%;color:var(--text);font:12.5px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
+  .code-editor{display:grid;grid-template-columns:50px 1fr;background:#0b1429;border:1px solid #2d416d;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(19,33,58,.4)}
+  .code-editor .line-nums{background:#0a1223;color:#5f7195;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace;padding:12px 8px;text-align:right;user-select:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+  .code-editor .line-nums span{display:block}
+  .code-editor textarea{background:transparent;border:none;resize:vertical;padding:12px 14px 12px 10px;line-height:1.35;tab-size:2;min-height:160px;color:var(--text)}
+  .code-editor textarea:disabled{color:#6d7c9c}
+  .code-editor textarea:focus{outline:none}
+  .code-editor textarea::-webkit-scrollbar{width:10px}
+  .code-editor textarea::-webkit-scrollbar-thumb{background:#1f3155;border-radius:999px}
+  .file-stage{display:flex;gap:32px;position:relative}
+  .code-column{flex:1.15;min-width:0;overflow:auto}
+  .comment-column{width:340px;flex:0 0 340px;position:relative}
+  .thread-list{display:flex;flex-direction:column;gap:14px;position:sticky;top:76px;max-height:calc(100vh - 140px);overflow:auto;padding-right:4px}
+  .thread-list::-webkit-scrollbar{width:6px}
+  .thread-list::-webkit-scrollbar-thumb{background:#1f3155;border-radius:999px}
+  .comment-thread{position:relative;padding-left:18px}
+  .comment-thread .right{float:none;margin-left:auto}
+  .comment-thread .badge.edit{margin-left:6px}
+  .comment-pin{position:absolute;left:0;top:16px;width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px rgba(111,156,255,.4)}
+  .comment-thread::before{content:"";position:absolute;left:5px;top:-22px;bottom:-22px;border-left:1px dashed rgba(111,156,255,.35)}
+  .comment-thread:first-of-type::before{top:16px}
+  .comment-thread:last-of-type::before{bottom:16px}
+  .comment-thread.resolved .comment-pin{background:#1cd38a;box-shadow:0 0 0 2px rgba(28,211,138,.35)}
+  .comment-thread.resolved{opacity:.82}
+  .comment-thread.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(111,156,255,.45),0 12px 28px rgba(39,68,126,.35)}
+  .comment-composer{position:relative;border-style:dashed;background:rgba(17,31,66,.72)}
+  .composer-header{justify-content:space-between}
+  .row.compact{gap:8px}
+  .share-bar{flex-wrap:wrap;justify-content:flex-end}
+  .share-bar input{width:100%;max-width:420px}
+  @media (max-width:1100px){
+    .wrap{padding:24px 16px}
+    .file-stage{flex-direction:column}
+    .comment-column{width:100%;flex:auto}
+    .thread-list{position:static;max-height:none;padding-right:0}
+    .comment-thread::before{display:none}
+    .comment-pin{display:none}
+  }
 </style>
 </head>
 <body>
@@ -505,9 +544,9 @@ $err = $_GET['error'] ?? '';
         <h2><?= h($doc['title']) ?></h2>
         <div class="muted">By <?= h($doc['author'] ?: 'Anonymous') ?> · Created <?= h($doc['created_at']) ?> · ID <?= h($doc['id']) ?></div>
       </div>
-      <div class="flex">
-        <span class="pill">Share this link on your Trello card:</span>
-        <input readonly value="<?= h((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']) ?>" style="width:420px" onclick="this.select()"/>
+      <div class="flex share-bar">
+        <span class="pill">Share this link:</span>
+        <input readonly value="<?= h((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']) ?>" onclick="this.select()"/>
       </div>
     </div>
   </div>
@@ -524,9 +563,9 @@ $err = $_GET['error'] ?? '';
         <span class="pill mono">Lines: <?= count($lines) ?></span>
         <span class="pill mono">Open comments: <?= $openComments ?></span>
       </div>
-      <div class="row">
-        <div class="grow">
-          <ol class="mono linenos" id="file<?= $fi ?>" data-lang="<?= h($language) ?>">
+      <div class="file-stage" data-file="<?= $fi ?>">
+        <div class="code-column">
+          <ol class="mono linenos file-lines" id="file<?= $fi ?>" data-lang="<?= h($language) ?>">
             <?php foreach ($lines as $ln => $text):
               $ln1 = $ln + 1;
               $lineId = 'f' . $fi . 'l' . $ln1;
@@ -540,72 +579,78 @@ $err = $_GET['error'] ?? '';
             <?php endforeach; ?>
           </ol>
         </div>
-        <div style="min-width:320px">
-          <form class="comment" method="post" data-file="<?= $fi ?>">
-            <input type="hidden" name="action" value="comment"/>
-            <input type="hidden" name="id" value="<?= h($doc['id']) ?>"/>
-            <input type="hidden" name="file" value="<?= $fi ?>"/>
-            <input type="hidden" name="line" value="1"/>
-            <input type="hidden" name="start_line" value="1"/>
-            <input type="hidden" name="end_line" value="1"/>
-            <input type="hidden" name="kind" value="comment"/>
-            <input type="hidden" name="suggestion" value=""/>
-            <div class="flex" style="justify-content:space-between;align-items:center">
-              <div class="muted">Discuss Selection</div>
-              <button type="button" class="pill close-editor" data-file="<?= $fi ?>" style="display:none">Close</button>
-            </div>
-            <div class="space"></div>
-            <div class="row">
-              <div class="grow"><input name="who" placeholder="Your name (optional)"></div>
-              <div style="width:120px"><input class="line-display" value="Line 1" readonly></div>
-            </div>
-            <div class="space"></div>
-            <div class="mode-toggle">
-              <label><input type="radio" name="mode<?= $fi ?>" value="comment" checked> Comment</label>
-              <label><input type="radio" name="mode<?= $fi ?>" value="edit"> Suggest edit</label>
-            </div>
-            <div class="space"></div>
-            <textarea name="body" rows="4" placeholder="Share context or feedback"></textarea>
-            <div class="space"></div>
-            <div class="suggestion-fields" style="display:none">
-              <textarea class="mono" name="suggestion_textarea" rows="6" placeholder="Proposed code changes"></textarea>
-              <div class="muted" style="margin-top:4px">Tip: adjust the snippet before submitting. Leave blank to cancel the edit.</div>
-            </div>
-            <div class="space"></div>
-            <button class="primary submit-button">Submit</button>
-          </form>
-
-          <?php foreach ($fileComments as $c):
-            $lineStart = max(1, (int)($c['line'] ?? 1));
-            $lineEnd = max($lineStart, (int)($c['line_end'] ?? $lineStart));
-            $lineId = 'f' . $fi . 'l' . $lineStart;
-            $lineLabel = $lineEnd > $lineStart ? "Lines $lineStart-$lineEnd" : "Line $lineStart";
-            $isEdit = ($c['kind'] ?? 'comment') === 'edit';
-          ?>
-            <div class="comment">
-              <div class="small">
-                <a href="#<?= h($lineId) ?>" onclick="return scrollToLine(<?= $fi ?>, <?= $lineStart ?>, <?= $lineEnd ?>)"><?= h($lineLabel) ?></a>
-                · <strong><?= h($c['who']) ?></strong>
-                · <span class="muted"><?= h($c['created_at']) ?></span>
-                <?php if ($isEdit): ?><span class="badge edit" style="margin-left:6px">edit</span><?php endif; ?>
-                <?php if ($c['resolved']): ?><span class="badge ok right">resolved</span><?php endif; ?>
+        <aside class="comment-column">
+          <div class="thread-list" id="comment-rail-<?= $fi ?>">
+            <form class="comment comment-composer" method="post" data-file="<?= $fi ?>">
+              <input type="hidden" name="action" value="comment"/>
+              <input type="hidden" name="id" value="<?= h($doc['id']) ?>"/>
+              <input type="hidden" name="file" value="<?= $fi ?>"/>
+              <input type="hidden" name="line" value="1"/>
+              <input type="hidden" name="start_line" value="1"/>
+              <input type="hidden" name="end_line" value="1"/>
+              <input type="hidden" name="kind" value="comment"/>
+              <input type="hidden" name="suggestion" value=""/>
+              <div class="flex composer-header">
+                <div class="muted">New comment</div>
+                <button type="button" class="pill close-editor" data-file="<?= $fi ?>" style="display:none">Close</button>
               </div>
-              <?php $body = trim((string)($c['body'] ?? '')); if ($body !== ''): ?>
-                <div><?= nl2br(h($body)) ?></div>
-              <?php endif; ?>
-              <?php $suggest = trim((string)($c['suggestion'] ?? '')); if ($suggest !== ''): ?>
-                <div class="suggestion">
-                  <div class="small muted">Suggested edit:</div>
-                  <pre class="mono" style="margin:6px 0 0;white-space:pre-wrap;"><?= h($suggest) ?></pre>
-                </div>
-              <?php endif; ?>
-              <?php if (is_admin() && !$c['resolved']): ?>
-                <div class="space"></div>
-                <a class="badge" href="?action=resolve&id=<?= h($doc['id']) ?>&cid=<?= h($c['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>">Mark resolved</a>
-              <?php endif; ?>
+              <div class="space"></div>
+              <div class="row compact">
+                <div class="grow"><input name="who" placeholder="Your name (optional)"></div>
+                <div style="width:120px"><input class="line-display" value="Line 1" readonly></div>
+              </div>
+              <div class="space"></div>
+              <div class="mode-toggle">
+                <label><input type="radio" name="mode<?= $fi ?>" value="comment" checked> Comment</label>
+                <label><input type="radio" name="mode<?= $fi ?>" value="edit"> Suggest edit</label>
+              </div>
+              <div class="space"></div>
+              <textarea name="body" rows="4" placeholder="Share context or feedback"></textarea>
+              <div class="space"></div>
+            <div class="suggestion-fields" style="display:none">
+              <div class="code-editor">
+                <div class="line-nums"></div>
+                <textarea class="mono" name="suggestion_textarea" rows="6" placeholder="Proposed code changes"></textarea>
+              </div>
+              <div class="muted" style="margin-top:6px">Tip: adjust the snippet before submitting. Leave blank to cancel the edit.</div>
             </div>
-          <?php endforeach; ?>
-        </div>
+              <div class="space"></div>
+              <button class="primary submit-button">Submit</button>
+            </form>
+
+            <?php foreach ($fileComments as $c):
+              $lineStart = max(1, (int)($c['line'] ?? 1));
+              $lineEnd = max($lineStart, (int)($c['line_end'] ?? $lineStart));
+              $lineId = 'f' . $fi . 'l' . $lineStart;
+              $lineLabel = $lineEnd > $lineStart ? "Lines $lineStart-$lineEnd" : "Line $lineStart";
+              $isEdit = ($c['kind'] ?? 'comment') === 'edit';
+            ?>
+              <div class="comment comment-thread<?= !empty($c['resolved']) ? ' resolved' : '' ?>" data-file="<?= $fi ?>" data-line-start="<?= $lineStart ?>" data-line-end="<?= $lineEnd ?>">
+                <div class="comment-pin"></div>
+                <div class="small">
+                  <a href="#<?= h($lineId) ?>" onclick="return scrollToLine(<?= $fi ?>, <?= $lineStart ?>, <?= $lineEnd ?>)"><?= h($lineLabel) ?></a>
+                  · <strong><?= h($c['who']) ?></strong>
+                  · <span class="muted"><?= h($c['created_at']) ?></span>
+                  <?php if ($isEdit): ?><span class="badge edit">edit</span><?php endif; ?>
+                  <?php if ($c['resolved']): ?><span class="badge ok right">resolved</span><?php endif; ?>
+                </div>
+                <?php $body = trim((string)($c['body'] ?? '')); if ($body !== ''): ?>
+                  <div><?= nl2br(h($body)) ?></div>
+                <?php endif; ?>
+                <?php $suggest = trim((string)($c['suggestion'] ?? '')); if ($suggest !== ''): ?>
+                  <div class="suggestion">
+                    <div class="small muted">Suggested edit:</div>
+                    <pre class="mono" style="margin:6px 0 0;white-space:pre-wrap;"><?= h($suggest) ?></pre>
+                  </div>
+                <?php endif; ?>
+                <?php if (is_admin() && !$c['resolved']): ?>
+                  <div class="space"></div>
+                  <a class="badge" href="?action=resolve&id=<?= h($doc['id']) ?>&cid=<?= h($c['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>">Mark resolved</a>
+                <?php endif; ?>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </aside>
       </div>
     </div>
   <?php endforeach; ?>
@@ -690,6 +735,7 @@ const state = {
 };
 
 const forms = new Map();
+const suggestionEditors = new WeakMap();
 
 document.querySelectorAll('form.comment').forEach(form => {
   const file = form.dataset.file;
@@ -780,6 +826,15 @@ function highlightRange(file, start, end){
       node.classList.add('hl');
     }
   }
+
+  document.querySelectorAll('.comment-thread').forEach(node => node.classList.remove('active'));
+  document.querySelectorAll(`.comment-thread[data-file="${fileId}"]`).forEach(node => {
+    const cStart = parseInt(node.dataset.lineStart || '1', 10);
+    const cEnd = parseInt(node.dataset.lineEnd || cStart, 10);
+    if (cStart <= end && cEnd >= start) {
+      node.classList.add('active');
+    }
+  });
 }
 
 function updateFormSelection(form, file, start, end){
@@ -821,12 +876,52 @@ function prefillSuggestion(form, file, start, end){
   const textarea = form.querySelector('textarea[name="suggestion_textarea"]');
   const hidden = form.querySelector('input[name="suggestion"]');
   if (!textarea || !hidden) { return; }
+  prepareSuggestionEditor(textarea);
   const code = gatherCode(file, start, end);
-  if (!code) { return; }
+  if (!code) {
+    refreshSuggestionEditor(textarea);
+    return;
+  }
   if (!textarea.dataset.userEdited || textarea.dataset.userEdited === 'false') {
     textarea.value = code;
     hidden.value = code;
     textarea.dataset.userEdited = 'false';
+  }
+  refreshSuggestionEditor(textarea);
+}
+
+function prepareSuggestionEditor(textarea){
+  if (!textarea || suggestionEditors.has(textarea)) { return; }
+  const editor = textarea.closest('.code-editor');
+  if (!editor) { return; }
+  const gutter = editor.querySelector('.line-nums');
+  if (!gutter) { return; }
+
+  const update = () => {
+    const value = textarea.value || '';
+    const lines = Math.max(1, value.split('\n').length);
+    let html = '';
+    for (let i = 1; i <= lines; i++) {
+      html += `<span>${i}</span>`;
+    }
+    gutter.innerHTML = html;
+    gutter.scrollTop = textarea.scrollTop;
+  };
+
+  textarea.addEventListener('input', update);
+  textarea.addEventListener('scroll', () => {
+    gutter.scrollTop = textarea.scrollTop;
+  });
+
+  update();
+  suggestionEditors.set(textarea, update);
+}
+
+function refreshSuggestionEditor(textarea){
+  if (!textarea) { return; }
+  const updater = suggestionEditors.get(textarea);
+  if (updater) {
+    updater();
   }
 }
 
@@ -846,7 +941,9 @@ function setupForm(form){
       if (suggestionHidden) {
         suggestionHidden.value = suggestionTextarea.value;
       }
+      refreshSuggestionEditor(suggestionTextarea);
     });
+    prepareSuggestionEditor(suggestionTextarea);
   }
 
   if (closeButton) {
@@ -882,6 +979,9 @@ function setupForm(form){
         if (suggestionHidden) {
           suggestionHidden.value = '';
         }
+        if (suggestionTextarea) {
+          refreshSuggestionEditor(suggestionTextarea);
+        }
       }
     });
   });
@@ -915,6 +1015,7 @@ function resetForm(form){
     suggestionTextarea.value = '';
     suggestionTextarea.disabled = true;
     suggestionTextarea.dataset.userEdited = 'false';
+    refreshSuggestionEditor(suggestionTextarea);
   }
   const commentModeRadio = form.querySelector('.mode-toggle input[value="comment"]');
   if (commentModeRadio) {
@@ -936,6 +1037,7 @@ function resetForm(form){
 
 function clearHighlights(){
   document.querySelectorAll('.linenos li').forEach(li => li.classList.remove('hl'));
+  document.querySelectorAll('.comment-thread').forEach(node => node.classList.remove('active'));
 }
 
 function isEditMode(form){
@@ -956,6 +1058,9 @@ function openCommentPanel(form, file, start, end){
       prefillSuggestion(form, file, start, end);
     }
   });
+  if (typeof form.scrollIntoView === 'function') {
+    form.scrollIntoView({block:'nearest', behavior:'smooth'});
+  }
 }
 
 function scrollToLine(file, start, end){
