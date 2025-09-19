@@ -18,6 +18,13 @@ if (!defined('MAX_SIZE')) { define('MAX_SIZE', 500 * 1024); }
 // --- Bootstrap --------------------------------------------------------------
 ensure_data_dir();
 
+// Prevent intermediary caches from serving stale reviews
+if (!headers_sent()) {
+  header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+  header('Pragma: no-cache');
+  header('Expires: 0');
+}
+
 // Helpers
 function ensure_data_dir(): void {
   if (is_dir(DATA_DIR) || @mkdir(DATA_DIR, 0775, true)) {
@@ -42,9 +49,25 @@ function load_json(string $path, $default) {
   if (!file_exists($path)) {
     return $default;
   }
+  if (!is_readable($path)) {
+    error_log('CodeReviewLite: unable to read "' . $path . '" — check filesystem permissions.');
+    return $default;
+  }
   $json = file_get_contents($path);
+  if ($json === false) {
+    error_log('CodeReviewLite: file_get_contents failed for "' . $path . '".');
+    return $default;
+  }
   $decoded = json_decode($json, true);
-  return is_array($decoded) ? $decoded : $default;
+  if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+    error_log('CodeReviewLite: JSON decode error for "' . $path . '": ' . json_last_error_msg());
+    return $default;
+  }
+  if (!is_array($decoded)) {
+    error_log('CodeReviewLite: unexpected JSON structure in "' . $path . '".');
+    return $default;
+  }
+  return $decoded;
 }
 function save_json_atomic(string $path, array $data): bool {
   $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -463,9 +486,7 @@ $err = $_GET['error'] ?? '';
   .file-stage{display:flex;gap:32px;position:relative}
   .code-column{flex:1.15;min-width:0;overflow:auto}
   .comment-column{width:340px;flex:0 0 340px;position:relative}
-  .thread-list{display:flex;flex-direction:column;gap:14px;position:sticky;top:76px;max-height:calc(100vh - 140px);overflow:auto;padding-right:4px}
-  .thread-list::-webkit-scrollbar{width:6px}
-  .thread-list::-webkit-scrollbar-thumb{background:#1f3155;border-radius:999px}
+  .thread-list{display:flex;flex-direction:column;gap:14px;position:relative;padding-right:0}
   .comment-thread{position:relative;padding-left:18px}
   .comment-thread .right{float:none;margin-left:auto}
   .comment-thread .badge.edit{margin-left:6px}
@@ -476,7 +497,7 @@ $err = $_GET['error'] ?? '';
   .comment-thread.resolved .comment-pin{background:#1cd38a;box-shadow:0 0 0 2px rgba(28,211,138,.35)}
   .comment-thread.resolved{opacity:.82}
   .comment-thread.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(111,156,255,.45),0 12px 28px rgba(39,68,126,.35)}
-  .comment-composer{position:relative;border-style:dashed;background:rgba(17,31,66,.72)}
+  .comment-composer{position:sticky;top:72px;border-style:dashed;background:rgba(17,31,66,.88);backdrop-filter:blur(10px);z-index:2}
   .composer-header{justify-content:space-between}
   .row.compact{gap:8px}
   .share-bar{flex-wrap:wrap;justify-content:flex-end}
@@ -485,7 +506,7 @@ $err = $_GET['error'] ?? '';
     .wrap{padding:24px 16px}
     .file-stage{flex-direction:column}
     .comment-column{width:100%;flex:auto}
-    .thread-list{position:static;max-height:none;padding-right:0}
+    .thread-list{position:static}
     .comment-thread::before{display:none}
     .comment-pin{display:none}
   }
