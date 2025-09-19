@@ -1,0 +1,994 @@
+<?php
+// CodeReviewLite - single-file PHP snippet review tool
+// Drop this file on any PHP-capable host. Create a writable ./data directory next to it.
+// Paste/upload code, get a shareable link, and collect per-line threaded comments.
+// Attach the link to your Trello card.
+
+// --- Configuration -----------------------------------------------------------
+if (!defined('APP_NAME')) { define('APP_NAME', 'CodeReviewLite'); }
+if (!defined('DATA_DIR')) { define('DATA_DIR', __DIR__ . '/data'); }
+if (!defined('ALLOW_FILE_UPLOADS')) { define('ALLOW_FILE_UPLOADS', false); }
+if (!defined('REQUIRE_CREATE_TOKEN')) { define('REQUIRE_CREATE_TOKEN', false); }
+if (!defined('CREATE_TOKEN')) { define('CREATE_TOKEN', ''); }
+if (!defined('ALLOW_ANON_COMMENTS')) { define('ALLOW_ANON_COMMENTS', true); }
+if (!defined('ADMIN_DELETE_TOKEN')) { define('ADMIN_DELETE_TOKEN', ''); }
+if (!defined('MAX_FILES')) { define('MAX_FILES', 10); }
+if (!defined('MAX_SIZE')) { define('MAX_SIZE', 500 * 1024); }
+
+// --- Bootstrap --------------------------------------------------------------
+ensure_data_dir();
+
+// Helpers
+function ensure_data_dir(): void {
+  if (is_dir(DATA_DIR) || @mkdir(DATA_DIR, 0775, true)) {
+    if (is_writable(DATA_DIR)) {
+      return;
+    }
+    fail_setup('Make the <code>data/</code> directory writable beside this file.');
+  }
+  fail_setup('Unable to create required <code>data/</code> directory.');
+}
+
+function fail_setup(string $message): void {
+  http_response_code(500);
+  echo '<h1>Setup error</h1><p>' . $message . '</p>';
+  exit;
+}
+
+function uuid(): string { return bin2hex(random_bytes(8)); }
+function path_for(string $id): string { return DATA_DIR . '/' . $id . '.json'; }
+function comments_path_for(string $id): string { return DATA_DIR . '/' . $id . '-comments.json'; }
+function load_json(string $path, $default) {
+  if (!file_exists($path)) {
+    return $default;
+  }
+  $json = file_get_contents($path);
+  $decoded = json_decode($json, true);
+  return is_array($decoded) ? $decoded : $default;
+}
+function save_json_atomic(string $path, array $data): bool {
+  $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+  if ($encoded === false) {
+    return false;
+  }
+  $tmp = $path . '.tmp';
+  $fp = fopen($tmp, 'wb');
+  if (!$fp) {
+    return false;
+  }
+  fwrite($fp, $encoded);
+  fclose($fp);
+  return @rename($tmp, $path);
+}
+function h(?string $s): string { return htmlspecialchars($s ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
+function now_iso(): string { return gmdate('Y-m-d\TH:i:s\Z'); }
+function is_admin(): bool {
+  return ADMIN_DELETE_TOKEN && (($_GET['admin'] ?? '') === ADMIN_DELETE_TOKEN);
+}
+function request_method(): string { return $_SERVER['REQUEST_METHOD'] ?? 'GET'; }
+function is_post(): bool { return request_method() === 'POST'; }
+function get_param(string $key, $default = null) { return $_GET[$key] ?? $default; }
+function post_param(string $key, $default = null) { return $_POST[$key] ?? $default; }
+function request_action(): string { return get_param('action', post_param('action', '')); }
+function request_id(): string { return get_param('id', post_param('id', '')); }
+function current_admin_token(): string { return $_GET['admin'] ?? ''; }
+function redirect_self(array $query = [], string $anchor = ''): void {
+  $path = $_SERVER['PHP_SELF'] ?? '';
+  if ($query) {
+    $path .= '?' . http_build_query($query);
+  }
+  if ($anchor !== '') {
+    $path .= '#' . ltrim($anchor, '#');
+  }
+  header('Location: ' . $path);
+  exit;
+}
+function abort_with(int $status, string $message): void {
+  http_response_code($status);
+  echo $message;
+  exit;
+}
+function enforce_create_token(): void {
+  if (!REQUIRE_CREATE_TOKEN) {
+    return;
+  }
+  if (get_param('token', '') === CREATE_TOKEN) {
+    return;
+  }
+  abort_with(403, 'Forbidden: invalid token');
+}
+function clamp_text(string $text): string {
+  if (strlen($text) <= MAX_SIZE) {
+    return $text;
+  }
+  return substr($text, 0, MAX_SIZE);
+}
+function with_admin(array $params): array {
+  $token = current_admin_token();
+  if ($token !== '') {
+    $params['admin'] = $token;
+  }
+  return $params;
+}
+function language_hint_for(string $filename, string $global): string {
+  $map = [
+    'php' => 'php',
+    'js' => 'javascript',
+    'ts' => 'typescript',
+    'jsx' => 'jsx',
+    'tsx' => 'tsx',
+    'py' => 'python',
+    'rb' => 'ruby',
+    'java' => 'java',
+    'cs' => 'csharp',
+    'c' => 'c',
+    'cpp' => 'cpp',
+    'cc' => 'cpp',
+    'cxx' => 'cpp',
+    'h' => 'c',
+    'hpp' => 'cpp',
+    'go' => 'go',
+    'rs' => 'rust',
+    'swift' => 'swift',
+    'kt' => 'kotlin',
+    'sql' => 'sql',
+    'sh' => 'bash',
+    'bash' => 'bash',
+    'html' => 'xml',
+    'htm' => 'xml',
+    'css' => 'css',
+    'json' => 'json',
+    'xml' => 'xml',
+    'yml' => 'yaml',
+    'yaml' => 'yaml',
+  ];
+
+  $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+  if ($ext && isset($map[$ext])) {
+    return $map[$ext];
+  }
+
+  $hint = strtolower($global);
+  if ($hint !== '' && $hint !== 'auto') {
+    return $map[$hint] ?? $hint;
+  }
+
+  return '';
+}
+
+// Routing
+$action = request_action();
+switch ($action) {
+  case 'create':
+    if (!is_post()) { break; }
+    handle_create();
+    break;
+  case 'comment':
+    if (!is_post()) { break; }
+    handle_comment();
+    break;
+  case 'resolve':
+    handle_resolve();
+    break;
+  case 'delete':
+    handle_delete();
+    break;
+}
+
+function handle_create(): void {
+  enforce_create_token();
+
+  $title = trim((string) post_param('title', '')); // fallback for empty string is done below
+  $author = trim((string) post_param('author', ''));
+  $language = trim((string) post_param('language', 'auto')) ?: 'auto';
+
+  $files = collect_pasted_files();
+  if (ALLOW_FILE_UPLOADS && !empty($_FILES['files'])) {
+    $files = array_merge($files, collect_uploaded_files($_FILES['files'], count($files)));
+  }
+
+  if (empty($files)) {
+    redirect_self(['error' => 'No files provided']);
+  }
+
+  $documentId = uuid();
+  $doc = [
+    'id' => $documentId,
+    'title' => $title !== '' ? $title : 'Untitled Review',
+    'author' => $author,
+    'language' => $language,
+    'created_at' => now_iso(),
+    'files' => $files,
+    'resolved' => false,
+  ];
+
+  if (!save_json_atomic(path_for($documentId), $doc)) {
+    abort_with(500, 'Failed to persist snippet.');
+  }
+  if (!save_json_atomic(comments_path_for($documentId), [])) {
+    abort_with(500, 'Failed to persist comments.');
+  }
+
+  redirect_self(['id' => $documentId]);
+}
+
+function collect_pasted_files(): array {
+  $names = post_param('filename', []);
+  $contents = post_param('content', []);
+  if (!is_array($names)) { $names = [$names]; }
+  if (!is_array($contents)) { $contents = [$contents]; }
+
+  $files = [];
+  $count = max(count($names), count($contents));
+  for ($i = 0; $i < $count && count($files) < MAX_FILES; $i++) {
+    $content = isset($contents[$i]) ? (string) $contents[$i] : '';
+    if ($content === '') {
+      continue;
+    }
+    $name = isset($names[$i]) ? trim((string) $names[$i]) : '';
+    $files[] = [
+      'name' => $name !== '' ? $name : 'snippet_' . ($i + 1),
+      'content' => clamp_text($content),
+    ];
+  }
+
+  return $files;
+}
+
+function collect_uploaded_files(array $uploads, int $existingCount): array {
+  $files = [];
+  if (!isset($uploads['name'], $uploads['error'], $uploads['tmp_name'])) {
+    return $files;
+  }
+
+  $names = $uploads['name'];
+  $errors = $uploads['error'];
+  $tmpNames = $uploads['tmp_name'];
+  $total = is_array($names) ? count($names) : (isset($names) ? 1 : 0);
+
+  for ($i = 0; $i < $total && ($existingCount + count($files)) < MAX_FILES; $i++) {
+    $error = is_array($errors) ? $errors[$i] : $errors;
+    $tmp = is_array($tmpNames) ? $tmpNames[$i] : $tmpNames;
+    if ($error !== UPLOAD_ERR_OK || !is_readable($tmp)) {
+      continue;
+    }
+
+    $data = file_get_contents($tmp);
+    if ($data === false) {
+      continue;
+    }
+
+    $name = is_array($names) ? $names[$i] : $names;
+    $files[] = [
+      'name' => (string) $name,
+      'content' => clamp_text($data),
+    ];
+  }
+
+  return $files;
+}
+
+function handle_comment(): void {
+  $id = trim((string) post_param('id', ''));
+  if ($id === '') {
+    abort_with(400, 'Bad request');
+  }
+
+  $doc = load_json(path_for($id), null);
+  if (!$doc) {
+    abort_with(404, 'Not found');
+  }
+
+  $fileIndex = max(0, (int) post_param('file', 0));
+  if (!isset($doc['files'][$fileIndex])) {
+    $fileIndex = 0;
+  }
+
+  $startLine = max(1, (int) post_param('start_line', post_param('line', 1)));
+  $endLine = max($startLine, (int) post_param('end_line', $startLine));
+  $line = $startLine;
+  $who = trim((string) post_param('who', ''));
+  $body = trim((string) post_param('body', ''));
+  $kind = post_param('kind', 'comment') === 'edit' ? 'edit' : 'comment';
+  $suggestionRaw = (string) post_param('suggestion', '');
+  $suggestion = clamp_text($suggestionRaw);
+  if ($kind === 'edit') {
+    if (trim($suggestionRaw) === '') {
+      abort_with(400, 'Suggested edit required');
+    }
+  } elseif ($body === '') {
+    abort_with(400, 'Comment body required');
+  }
+  if (!ALLOW_ANON_COMMENTS && $who === '') {
+    abort_with(403, 'Name required');
+  }
+
+  $comments = load_json(comments_path_for($id), []);
+  if (!is_array($comments)) {
+    $comments = [];
+  }
+
+  $comments[] = [
+    'id' => uuid(),
+    'file' => $fileIndex,
+    'line' => $line,
+    'line_end' => $endLine,
+    'who' => $who !== '' ? $who : 'Anonymous',
+    'body' => $body,
+    'created_at' => now_iso(),
+    'resolved' => false,
+    'kind' => $kind,
+    'suggestion' => $suggestion,
+  ];
+
+  if (!save_json_atomic(comments_path_for($id), $comments)) {
+    abort_with(500, 'Failed to save comment');
+  }
+
+  redirect_self(with_admin(['id' => $id]), 'f' . $fileIndex . 'l' . $line);
+}
+
+function handle_resolve(): void {
+  if (!is_admin()) {
+    abort_with(403, 'Forbidden');
+  }
+
+  $id = trim((string) get_param('id', ''));
+  if ($id === '') {
+    abort_with(400, 'Bad request');
+  }
+
+  $commentId = trim((string) get_param('cid', ''));
+  if ($commentId !== '') {
+    $comments = load_json(comments_path_for($id), []);
+    $updated = false;
+    foreach ($comments as &$comment) {
+      if (($comment['id'] ?? null) === $commentId) {
+        $comment['resolved'] = true;
+        $updated = true;
+        break;
+      }
+    }
+    unset($comment);
+    if ($updated && !save_json_atomic(comments_path_for($id), $comments)) {
+      abort_with(500, 'Failed to update comment state');
+    }
+  } else {
+    $doc = load_json(path_for($id), null);
+    if ($doc) {
+      $current = !empty($doc['resolved']);
+      $doc['resolved'] = !$current;
+      if (!save_json_atomic(path_for($id), $doc)) {
+        abort_with(500, 'Failed to update snippet state');
+      }
+    }
+  }
+
+  redirect_self(with_admin(['id' => $id]));
+}
+
+function handle_delete(): void {
+  if (!is_admin()) {
+    abort_with(403, 'Forbidden');
+  }
+
+  $id = trim((string) get_param('id', ''));
+  if ($id !== '') {
+    @unlink(path_for($id));
+    @unlink(comments_path_for($id));
+  }
+
+  redirect_self(with_admin([]));
+}
+
+function group_comments_by_file(array $comments): array {
+  $grouped = [];
+  foreach ($comments as $comment) {
+    $index = isset($comment['file']) ? (int) $comment['file'] : 0;
+    if (!isset($grouped[$index])) {
+      $grouped[$index] = ['all' => [], 'open' => 0];
+    }
+    $grouped[$index]['all'][] = $comment;
+    if (empty($comment['resolved'])) {
+      $grouped[$index]['open']++;
+    }
+  }
+  return $grouped;
+}
+
+// Render
+$id = request_id();
+$doc = $id !== '' ? load_json(path_for($id), null) : null;
+$comments = $id !== '' ? load_json(comments_path_for($id), []) : [];
+$commentsByFile = group_comments_by_file(is_array($comments) ? $comments : []);
+$err = $_GET['error'] ?? '';
+?><!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title><?= h(APP_NAME) ?><?= $doc ? ' · ' . h($doc['title']) : '' ?></title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<style>
+  :root { --bg:#0b0d10; --card:#131720; --muted:#8b97a7; --text:#e8edf3; --accent:#7aa2ff; --ok:#16c27a; --warn:#f6c85f; --danger:#ff6b6b; }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Arial}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid #20283a;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:18px;margin-bottom:18px}
+  h1,h2{margin:0 0 12px} h1{font-size:20px} h2{font-size:16px;color:#b9c3d3}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .grow{flex:1}
+  input,select,textarea,button{background:#0e1320;color:var(--text);border:1px solid #26314a;border-radius:10px;padding:10px;font:14px Inter;width:100%}
+  button{cursor:pointer;background:linear-gradient(180deg,#1b2650,#121a36);border:1px solid #28345a}
+  button.primary{background:linear-gradient(180deg,#2b55ff,#1b3ad1);border-color:#3854e6}
+  .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace; font-size:12.5px}
+  .file{margin-top:6px}
+  .code{position:relative;border:1px solid #26314a;border-radius:12px;overflow:auto}
+  .linenos{counter-reset: line; padding-left: 0; margin:0}
+  .linenos li{display:block; white-space:pre; padding-left: 48px; position:relative}
+  .linenos li::before{counter-increment: line; content: counter(line); position:absolute; left:0; width:40px; text-align:right; color:#6a768a; padding-right:8px}
+  .code-line{cursor:pointer}
+  .hl{background: rgba(122,162,255,0.12)}
+  .comment{background:#0e1424;border:1px solid #273150;border-radius:10px;padding:10px;margin:10px 0}
+  .comment.small{font-size:12px;color:#b9c3d3}
+  .badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:12px;border:1px solid #2d3b60;background:#0f1630}
+  .ok{color:#0fd58a;border-color:#0fd58a33}
+  .badge.edit{color:#7aa2ff;border-color:#7aa2ff55}
+  .muted{color:#9db0c6}
+  .right{float:right}
+  .flex{display:flex;gap:8px;align-items:center}
+  .space{height:8px}
+  .sticky{position:sticky; top:0; background:var(--card); padding:8px; z-index:3; border-bottom:1px solid #20283a; border-top-left-radius:12px; border-top-right-radius:12px}
+  .pill{padding:5px 10px;border-radius:999px;background:#0e1320;border:1px solid #273150}
+  .suggestion{margin-top:10px;padding:10px;border-radius:10px;border:1px solid #26406c;background:#091024}
+  .suggestion pre{margin:6px 0 0;white-space:pre-wrap}
+  .mode-toggle{display:flex;gap:12px}
+  .mode-toggle label{display:flex;align-items:center;gap:6px;color:#b9c3d3;font-size:13px}
+  .mode-toggle input{margin:0}
+  .close-editor{cursor:pointer}
+  .suggestion-fields textarea{width:100%;background:#0b1429;border:1px solid #2d416d;border-radius:8px;padding:8px;color:var(--text);font:12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="row" style="align-items:center">
+      <div class="grow"><h1><?= h(APP_NAME) ?></h1><div class="muted">Paste code → share link → collect per-line comments. Perfect for Trello attachments.</div></div>
+      <?php if ($doc): ?>
+        <div><span class="badge <?= $doc['resolved'] ? 'ok' : '' ?>">Status: <?= $doc['resolved'] ? 'Resolved' : 'Open' ?></span></div>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <?php if ($err): ?>
+  <div class="card" style="border-color:#5b2a2a"><strong>Error:</strong> <?= h($err) ?></div>
+  <?php endif; ?>
+
+  <?php if (!$doc): ?>
+  <form class="card" method="post" enctype="multipart/form-data">
+    <input type="hidden" name="action" value="create"/>
+    <div class="row">
+      <div class="grow"><label>Title<br><input name="title" placeholder="e.g., Review: refactor PlantController::ApplyQueuedTreatments" required></label></div>
+      <div><label>Your name<br><input name="author" placeholder="Optional"></label></div>
+      <div style="min-width:180px"><label>Language (hint)<br>
+        <select name="language">
+          <option value="auto">Auto</option>
+          <option>c</option><option>cpp</option><option>csharp</option><option>go</option><option>java</option><option>js</option><option>ts</option><option>php</option><option>python</option><option>ruby</option><option>swift</option><option>kotlin</option><option>rust</option><option>sql</option><option>bash</option><option>html</option><option>css</option>
+        </select>
+      </label></div>
+    </div>
+
+    <div class="space"></div>
+    <h2>Files</h2>
+    <div id="files">
+      <div class="file">
+        <div class="row">
+          <div class="grow"><input name="filename[]" placeholder="Filename (e.g., PlantController.cs)"></div>
+          <div style="width:120px"><button type="button" onclick="addFile()">+ Add file</button></div>
+        </div>
+        <div class="space"></div>
+        <textarea class="mono" name="content[]" rows="12" placeholder="Paste code here..."></textarea>
+      </div>
+    </div>
+
+    <div class="space"></div>
+    <button class="primary">Create shareable review link</button>
+  </form>
+  <?php else: ?>
+
+  <div class="card">
+    <div class="row" style="align-items:center">
+      <div class="grow">
+        <h2><?= h($doc['title']) ?></h2>
+        <div class="muted">By <?= h($doc['author'] ?: 'Anonymous') ?> · Created <?= h($doc['created_at']) ?> · ID <?= h($doc['id']) ?></div>
+      </div>
+      <div class="flex">
+        <span class="pill">Share this link on your Trello card:</span>
+        <input readonly value="<?= h((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']) ?>" style="width:420px" onclick="this.select()"/>
+      </div>
+    </div>
+  </div>
+
+  <?php foreach ($doc['files'] as $fi => $f):
+    $lines = explode("\n", $f['content']);
+    $fileComments = $commentsByFile[$fi]['all'] ?? [];
+    $openComments = $commentsByFile[$fi]['open'] ?? 0;
+    $language = language_hint_for($f['name'], $doc['language'] ?? '');
+  ?>
+    <div class="card">
+      <div class="sticky flex">
+        <strong><?= h($f['name']) ?></strong>
+        <span class="pill mono">Lines: <?= count($lines) ?></span>
+        <span class="pill mono">Open comments: <?= $openComments ?></span>
+      </div>
+      <div class="row">
+        <div class="grow">
+          <ol class="mono linenos" id="file<?= $fi ?>" data-lang="<?= h($language) ?>">
+            <?php foreach ($lines as $ln => $text):
+              $ln1 = $ln + 1;
+              $lineId = 'f' . $fi . 'l' . $ln1;
+              $rawLine = rtrim($text, "\r");
+            ?>
+              <li id="<?= h($lineId) ?>" class="code-line"
+                  data-file="<?= $fi ?>"
+                  data-line="<?= $ln1 ?>"
+                  data-line-id="<?= h($lineId) ?>"
+                  data-raw="<?= h($rawLine) ?>"><span><?= h($rawLine) ?></span></li>
+            <?php endforeach; ?>
+          </ol>
+        </div>
+        <div style="min-width:320px">
+          <form class="comment" method="post" data-file="<?= $fi ?>">
+            <input type="hidden" name="action" value="comment"/>
+            <input type="hidden" name="id" value="<?= h($doc['id']) ?>"/>
+            <input type="hidden" name="file" value="<?= $fi ?>"/>
+            <input type="hidden" name="line" value="1"/>
+            <input type="hidden" name="start_line" value="1"/>
+            <input type="hidden" name="end_line" value="1"/>
+            <input type="hidden" name="kind" value="comment"/>
+            <input type="hidden" name="suggestion" value=""/>
+            <div class="flex" style="justify-content:space-between;align-items:center">
+              <div class="muted">Discuss Selection</div>
+              <button type="button" class="pill close-editor" data-file="<?= $fi ?>" style="display:none">Close</button>
+            </div>
+            <div class="space"></div>
+            <div class="row">
+              <div class="grow"><input name="who" placeholder="Your name (optional)"></div>
+              <div style="width:120px"><input class="line-display" value="Line 1" readonly></div>
+            </div>
+            <div class="space"></div>
+            <div class="mode-toggle">
+              <label><input type="radio" name="mode<?= $fi ?>" value="comment" checked> Comment</label>
+              <label><input type="radio" name="mode<?= $fi ?>" value="edit"> Suggest edit</label>
+            </div>
+            <div class="space"></div>
+            <textarea name="body" rows="4" placeholder="Share context or feedback"></textarea>
+            <div class="space"></div>
+            <div class="suggestion-fields" style="display:none">
+              <textarea class="mono" name="suggestion_textarea" rows="6" placeholder="Proposed code changes"></textarea>
+              <div class="muted" style="margin-top:4px">Tip: adjust the snippet before submitting. Leave blank to cancel the edit.</div>
+            </div>
+            <div class="space"></div>
+            <button class="primary submit-button">Submit</button>
+          </form>
+
+          <?php foreach ($fileComments as $c):
+            $lineStart = max(1, (int)($c['line'] ?? 1));
+            $lineEnd = max($lineStart, (int)($c['line_end'] ?? $lineStart));
+            $lineId = 'f' . $fi . 'l' . $lineStart;
+            $lineLabel = $lineEnd > $lineStart ? "Lines $lineStart-$lineEnd" : "Line $lineStart";
+            $isEdit = ($c['kind'] ?? 'comment') === 'edit';
+          ?>
+            <div class="comment">
+              <div class="small">
+                <a href="#<?= h($lineId) ?>" onclick="return scrollToLine(<?= $fi ?>, <?= $lineStart ?>, <?= $lineEnd ?>)"><?= h($lineLabel) ?></a>
+                · <strong><?= h($c['who']) ?></strong>
+                · <span class="muted"><?= h($c['created_at']) ?></span>
+                <?php if ($isEdit): ?><span class="badge edit" style="margin-left:6px">edit</span><?php endif; ?>
+                <?php if ($c['resolved']): ?><span class="badge ok right">resolved</span><?php endif; ?>
+              </div>
+              <?php $body = trim((string)($c['body'] ?? '')); if ($body !== ''): ?>
+                <div><?= nl2br(h($body)) ?></div>
+              <?php endif; ?>
+              <?php $suggest = trim((string)($c['suggestion'] ?? '')); if ($suggest !== ''): ?>
+                <div class="suggestion">
+                  <div class="small muted">Suggested edit:</div>
+                  <pre class="mono" style="margin:6px 0 0;white-space:pre-wrap;"><?= h($suggest) ?></pre>
+                </div>
+              <?php endif; ?>
+              <?php if (is_admin() && !$c['resolved']): ?>
+                <div class="space"></div>
+                <a class="badge" href="?action=resolve&id=<?= h($doc['id']) ?>&cid=<?= h($c['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>">Mark resolved</a>
+              <?php endif; ?>
+            </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
+    </div>
+  <?php endforeach; ?>
+
+  <div class="card">
+    <div class="flex">
+      <?php if (is_admin()): ?>
+        <a class="badge" href="?action=resolve&id=<?= h($doc['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>">Toggle Resolved</a>
+        <a class="badge" style="color:#ff9595;border-color:#ff9595" href="?action=delete&id=<?= h($doc['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>" onclick="return confirm('Delete this review permanently?')">Delete</a>
+      <?php endif; ?>
+      <span class="muted">Tip: click or drag on code to select lines, then choose comment or suggest edit.</span>
+    </div>
+  </div>
+
+<?php endif; ?>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+const decodeHtml = (() => {
+  const textarea = document.createElement('textarea');
+  return (str) => {
+    textarea.innerHTML = str;
+    return textarea.value;
+  };
+})();
+
+function addFile(){
+  const wrap = document.getElementById('files');
+  const div = document.createElement('div');
+  div.className = 'file';
+  div.innerHTML = `
+    <div class="row">
+      <div class="grow"><input name="filename[]" placeholder="Filename"></div>
+      <div style="width:120px"></div>
+    </div>
+    <div class="space"></div>
+    <textarea class="mono" name="content[]" rows="12" placeholder="Paste code here..."></textarea>
+  `;
+  wrap.appendChild(div);
+}
+
+function applyHighlighting(){
+  if (typeof hljs === 'undefined') { return; }
+  document.querySelectorAll('.linenos').forEach(ol => {
+    const spans = Array.from(ol.querySelectorAll('li span'));
+    if (!spans.length) { return; }
+    const original = spans.map(span => span.textContent).join('\n');
+    const language = ol.dataset.lang || undefined;
+    let highlighted;
+    try {
+      highlighted = language ? hljs.highlight(original, {language}).value : hljs.highlightAuto(original).value;
+    } catch (e) {
+      highlighted = hljs.highlightAuto(original).value;
+    }
+    const rawLines = original.split('\n');
+    const pieces = highlighted.split(/\n/);
+    const escapeHtml = typeof hljs.escapeHTML === 'function'
+      ? hljs.escapeHTML
+      : (str) => {
+          const ENTITIES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"};
+          return str.replace(/[&<>"']/g, ch => ENTITIES[ch]);
+        };
+    if (pieces.length < rawLines.length) {
+      for (let i = pieces.length; i < rawLines.length; i++) {
+        pieces[i] = escapeHtml(rawLines[i]);
+      }
+    }
+    spans.forEach((span, idx) => {
+      span.innerHTML = pieces[idx] ?? '';
+    });
+  });
+}
+
+applyHighlighting();
+
+const state = {
+  selecting: false,
+  activeFile: null,
+  startLine: null,
+  endLine: null,
+};
+
+const forms = new Map();
+
+document.querySelectorAll('form.comment').forEach(form => {
+  const file = form.dataset.file;
+  if (!file) { return; }
+  forms.set(file, form);
+  setupForm(form);
+});
+
+document.querySelectorAll('.code-line').forEach(line => {
+  line.addEventListener('mousedown', onLineMouseDown);
+  line.addEventListener('mouseenter', onLineMouseEnter);
+  line.addEventListener('mouseup', onLineMouseUp);
+  line.addEventListener('click', e => e.preventDefault());
+});
+
+document.addEventListener('mouseup', () => {
+  if (!state.selecting) { return; }
+  state.selecting = false;
+  if (state.activeFile === null) { return; }
+  finalizeSelection();
+});
+
+handleInitialHash();
+window.addEventListener('hashchange', handleInitialHash);
+
+function onLineMouseDown(event){
+  event.preventDefault();
+  const li = event.currentTarget;
+  const file = String(li.dataset.file);
+  const line = parseInt(li.dataset.line, 10) || 1;
+  state.selecting = true;
+  state.activeFile = file;
+  state.startLine = line;
+  state.endLine = line;
+  updateSelection(file, line, line);
+}
+
+function onLineMouseEnter(event){
+  if (!state.selecting) { return; }
+  const li = event.currentTarget;
+  const file = String(li.dataset.file);
+  if (file !== state.activeFile) { return; }
+  const line = parseInt(li.dataset.line, 10) || 1;
+  state.endLine = line;
+  updateSelection(file, state.startLine, line);
+}
+
+function onLineMouseUp(event){
+  if (!state.selecting) { return; }
+  const li = event.currentTarget;
+  const file = String(li.dataset.file);
+  if (file !== state.activeFile) { return; }
+  const line = parseInt(li.dataset.line, 10) || 1;
+  state.endLine = line;
+  finalizeSelection();
+  state.selecting = false;
+}
+
+function finalizeSelection(){
+  if (state.activeFile === null || state.startLine === null || state.endLine === null) {
+    return;
+  }
+  const file = String(state.activeFile);
+  updateSelection(file, state.startLine, state.endLine);
+  const form = forms.get(file);
+  if (form) {
+    openCommentPanel(form, file, Math.min(state.startLine, state.endLine), Math.max(state.startLine, state.endLine));
+  }
+}
+
+function updateSelection(file, start, end){
+  const key = String(file);
+  const [min, max] = start <= end ? [start, end] : [end, start];
+  highlightRange(key, min, max);
+  const form = forms.get(key);
+  if (form) {
+    updateFormSelection(form, key, min, max);
+  }
+}
+
+function highlightRange(file, start, end){
+  const fileId = String(file);
+  document.querySelectorAll('.linenos li').forEach(li => li.classList.remove('hl'));
+  for (let ln = start; ln <= end; ln++) {
+    const id = `f${fileId}l${ln}`;
+    const node = document.getElementById(id);
+    if (node) {
+      node.classList.add('hl');
+    }
+  }
+}
+
+function updateFormSelection(form, file, start, end){
+  const fileId = String(file);
+  form.querySelector('input[name="file"]').value = file;
+  form.querySelector('input[name="line"]').value = start;
+  form.querySelector('input[name="start_line"]').value = start;
+  form.querySelector('input[name="end_line"]').value = end;
+  const display = form.querySelector('.line-display');
+  if (display) {
+    display.value = start === end ? `Line ${start}` : `Lines ${start}-${end}`;
+  }
+  const closeButton = form.querySelector('.close-editor');
+  if (closeButton) {
+    closeButton.style.display = 'inline-flex';
+  }
+  if (isEditMode(form)) {
+    const suggestionTextarea = form.querySelector('textarea[name="suggestion_textarea"]');
+    const suggestionHidden = form.querySelector('input[name="suggestion"]');
+    if (suggestionTextarea) { suggestionTextarea.dataset.userEdited = 'false'; }
+    if (suggestionHidden) { suggestionHidden.value = ''; }
+    prefillSuggestion(form, fileId, start, end);
+  }
+}
+
+function gatherCode(file, start, end){
+  const fileId = String(file);
+  const lines = [];
+  for (let ln = start; ln <= end; ln++) {
+    const node = document.getElementById(`f${fileId}l${ln}`);
+    if (node) {
+      lines.push(decodeHtml(node.getAttribute('data-raw') || ''));
+    }
+  }
+  return lines.join('\n');
+}
+
+function prefillSuggestion(form, file, start, end){
+  const textarea = form.querySelector('textarea[name="suggestion_textarea"]');
+  const hidden = form.querySelector('input[name="suggestion"]');
+  if (!textarea || !hidden) { return; }
+  const code = gatherCode(file, start, end);
+  if (!code) { return; }
+  if (!textarea.dataset.userEdited || textarea.dataset.userEdited === 'false') {
+    textarea.value = code;
+    hidden.value = code;
+    textarea.dataset.userEdited = 'false';
+  }
+}
+
+function setupForm(form){
+  const suggestionWrapper = form.querySelector('.suggestion-fields');
+  const suggestionHidden = form.querySelector('input[name="suggestion"]');
+  const suggestionTextarea = form.querySelector('textarea[name="suggestion_textarea"]');
+  const kindHidden = form.querySelector('input[name="kind"]');
+  const commentTextarea = form.querySelector('textarea[name="body"]');
+  const closeButton = form.querySelector('.close-editor');
+
+  if (suggestionTextarea) {
+    suggestionTextarea.disabled = true;
+    suggestionTextarea.dataset.userEdited = 'false';
+    suggestionTextarea.addEventListener('input', () => {
+      suggestionTextarea.dataset.userEdited = 'true';
+      if (suggestionHidden) {
+        suggestionHidden.value = suggestionTextarea.value;
+      }
+    });
+  }
+
+  if (closeButton) {
+    closeButton.addEventListener('click', () => {
+      resetForm(form);
+    });
+  }
+
+  form.querySelectorAll('.mode-toggle input[type="radio"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) { return; }
+      const mode = radio.value === 'edit' ? 'edit' : 'comment';
+      if (kindHidden) {
+        kindHidden.value = mode;
+      }
+      if (mode === 'edit') {
+        if (suggestionWrapper) { suggestionWrapper.style.display = 'block'; }
+        if (suggestionTextarea) {
+          suggestionTextarea.disabled = false;
+          suggestionTextarea.dataset.userEdited = suggestionTextarea.value ? 'true' : 'false';
+        }
+        const file = String(form.dataset.file);
+        const start = parseInt(form.querySelector('input[name="start_line"]').value, 10) || 1;
+        const end = parseInt(form.querySelector('input[name="end_line"]').value, 10) || start;
+        prefillSuggestion(form, file, start, end);
+      } else {
+        if (suggestionWrapper) { suggestionWrapper.style.display = 'none'; }
+        if (suggestionTextarea) {
+          suggestionTextarea.disabled = true;
+          suggestionTextarea.value = '';
+          suggestionTextarea.dataset.userEdited = 'false';
+        }
+        if (suggestionHidden) {
+          suggestionHidden.value = '';
+        }
+      }
+    });
+  });
+
+  form.addEventListener('submit', () => {
+    if (suggestionTextarea && suggestionTextarea.disabled) {
+      suggestionTextarea.value = '';
+    }
+  });
+
+  if (commentTextarea) {
+    commentTextarea.addEventListener('focus', () => {
+      commentTextarea.dataset.userTouched = 'true';
+    });
+  }
+}
+
+function resetForm(form){
+  const file = form.dataset.file;
+  form.querySelector('input[name="line"]').value = 1;
+  form.querySelector('input[name="start_line"]').value = 1;
+  form.querySelector('input[name="end_line"]').value = 1;
+  const display = form.querySelector('.line-display');
+  if (display) { display.value = 'Line 1'; }
+  const commentTextarea = form.querySelector('textarea[name="body"]');
+  if (commentTextarea) { commentTextarea.value = ''; }
+  const suggestionHidden = form.querySelector('input[name="suggestion"]');
+  if (suggestionHidden) { suggestionHidden.value = ''; }
+  const suggestionTextarea = form.querySelector('textarea[name="suggestion_textarea"]');
+  if (suggestionTextarea) {
+    suggestionTextarea.value = '';
+    suggestionTextarea.disabled = true;
+    suggestionTextarea.dataset.userEdited = 'false';
+  }
+  const commentModeRadio = form.querySelector('.mode-toggle input[value="comment"]');
+  if (commentModeRadio) {
+    commentModeRadio.checked = true;
+  }
+  const kindHidden = form.querySelector('input[name="kind"]');
+  if (kindHidden) {
+    kindHidden.value = 'comment';
+  }
+  const suggestionWrapper = form.querySelector('.suggestion-fields');
+  if (suggestionWrapper) { suggestionWrapper.style.display = 'none'; }
+  const closeButton = form.querySelector('.close-editor');
+  if (closeButton) { closeButton.style.display = 'none'; }
+  clearHighlights();
+  state.activeFile = null;
+  state.startLine = null;
+  state.endLine = null;
+}
+
+function clearHighlights(){
+  document.querySelectorAll('.linenos li').forEach(li => li.classList.remove('hl'));
+}
+
+function isEditMode(form){
+  return (form.querySelector('input[name="kind"]').value || 'comment') === 'edit';
+}
+
+function openCommentPanel(form, file, start, end){
+  const commentTextarea = form.querySelector('textarea[name="body"]');
+  if (commentTextarea) {
+    try {
+      commentTextarea.focus({preventScroll:true});
+    } catch (err) {
+      commentTextarea.focus();
+    }
+  }
+  form.querySelectorAll('.mode-toggle input[type="radio"]').forEach(radio => {
+    if (radio.value === 'edit' && radio.checked) {
+      prefillSuggestion(form, file, start, end);
+    }
+  });
+}
+
+function scrollToLine(file, start, end){
+  const fileId = String(file);
+  const node = document.getElementById(`f${fileId}l${start}`);
+  if (node) {
+    node.scrollIntoView({behavior:'smooth', block:'center'});
+    const last = end || start;
+    state.activeFile = fileId;
+    state.startLine = start;
+    state.endLine = last;
+    updateSelection(fileId, start, last);
+  }
+  return false;
+}
+
+function handleInitialHash(){
+  const hash = decodeURIComponent(window.location.hash || '').replace(/^#/, '');
+  if (!hash) { return; }
+  let match = hash.match(/^f(\d+)l(\d+)$/);
+  if (match) {
+    scrollToLine(match[1], parseInt(match[2], 10) || 1);
+    return;
+  }
+  match = hash.match(/^l(\d+)$/);
+  if (match) {
+    const line = parseInt(match[1], 10) || 1;
+    const node = document.querySelector(`.code-line[data-line="${line}"]`);
+    if (node) {
+      scrollToLine(node.dataset.file, line);
+    }
+  }
+}
+</script>
+</body>
+</html>
