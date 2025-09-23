@@ -1,10 +1,9 @@
-name: Deploy PHP site to Bluehost (index.php only)
+name: Deploy PHP site to Bluehost (index.php only, preserve /data)
 
 on:
   push:
     branches: [ "main" ]
 
-# Prevent overlapping deploys
 concurrency:
   group: deploy-production
   cancel-in-progress: true
@@ -16,12 +15,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Upload via FTP (only index.php due to ignore rules)
+      - name: Upload via FTP (only index.php; exclude /data from upload & delete)
         uses: SamKirkland/FTP-Deploy-Action@v4
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          server-dir: ${{ secrets.FTP_REMOTE_PATH }}   # e.g. /public_html/
-          local-dir: ./                                # upload from repo root
-          dangerous-clean-slate: true                  # remove files not in "allowed" set
+          server-dir: ${{ secrets.FTP_REMOTE_PATH }}   
+          local-dir: ./                               
+          # Clean remote to match repo, BUT do not touch excluded paths
+          dangerous-clean-slate: true
+          exclude: |
+            data/**
+            .git/**
+            .github/**
+            .ftp-deploy-sync-state.json
+            node_modules/**
+            vendor/**
+            .env
+            .env.*
