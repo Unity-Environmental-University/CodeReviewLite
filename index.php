@@ -453,7 +453,11 @@ $err = $_GET['error'] ?? '';
   .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace; font-size:12.5px}
   .file{margin-top:6px}
   .code{position:relative;border:1px solid #26314a;border-radius:12px;overflow:auto}
-  .linenos{counter-reset: line; padding-left: 0; margin:0; background:#101a32;border:1px solid #1d2c4f;border-radius:14px;overflow:auto}
+  .linenos{counter-reset: line; padding-left: 0; margin:0; background:#101a32;border:1px solid #1d2c4f;border-radius:14px;overflow-y:auto;overflow-x:hidden}
+  .linenos::-webkit-scrollbar{width:10px;height:10px}
+  .linenos::-webkit-scrollbar-thumb{background:#1f3155;border-radius:999px}
+  .linenos::-webkit-scrollbar-track{background:#0b1429}
+  .linenos{scrollbar-color:#1f3155 #0b1429; scrollbar-width:thin}
   .linenos li{display:block; white-space:pre; padding:8px 16px 8px 56px; position:relative; min-height:20px; line-height:1.35; scroll-margin-top:120px}
   .linenos li::before{counter-increment: line; content: counter(line); position:absolute; left:16px; top:8px; width:30px; text-align:right; color:#5f7195; padding-right:6px}
   .code-line{cursor:pointer; transition:background .15s; overflow-x:hidden}
@@ -477,12 +481,14 @@ $err = $_GET['error'] ?? '';
   .mode-toggle{display:flex;gap:12px;flex-wrap:wrap}
   .mode-toggle label{display:inline-flex;align-items:center;gap:6px;color:#b9c3d3;font-size:13px;white-space:nowrap}
   .mode-toggle input{margin:0}
-  .close-editor{cursor:pointer;padding:2px 8px;line-height:1}
-  .suggestion-fields textarea{width:100%;color:var(--text);font:12.5px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
-  .code-editor{display:grid;grid-template-columns:50px 1fr;background:#0b1429;border:1px solid #2d416d;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(19,33,58,.4)}
-  .code-editor .line-nums{background:#0a1223;color:#5f7195;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace;padding:12px 8px;text-align:right;user-select:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+  .close-editor{cursor:pointer;position:absolute;top:4px;right:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;background:transparent;border:1px solid transparent;border-radius:8px;color:#b9c3d3}
+  .close-editor:hover{color:var(--text);background:rgba(255,255,255,.06);border-color:#2b3a5b}
+  .close-editor:focus{outline:none;box-shadow:0 0 0 2px rgba(111,156,255,.25)}
+  .suggestion-fields textarea{width:100%;height:100%;display:block;color:var(--text);font:12.5px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
+  .code-editor{display:grid;grid-template-columns:56px 1fr;background:#0b1429;border:1px solid #2d416d;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(19,33,58,.4);min-height:220px}
+  .code-editor .line-nums{background:#0a1223;color:#5f7195;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace;padding:12px 8px;text-align:right;user-select:none;display:flex;flex-direction:column;gap:2px;overflow:hidden;align-self:stretch}
   .code-editor .line-nums span{display:block}
-  .code-editor textarea{background:transparent;border:none;resize:vertical;padding:12px 14px 12px 10px;line-height:1.35;tab-size:2;min-height:160px;color:var(--text)}
+  .code-editor textarea{background:transparent;border:none;resize:vertical;padding:12px 14px 12px 10px;line-height:1.4;tab-size:2;min-height:220px;height:100%;width:100%;box-sizing:border-box;color:var(--text);white-space:pre;overflow:auto}
   .code-editor textarea:disabled{color:#6d7c9c}
   .code-editor textarea:focus{outline:none}
   .code-editor textarea::-webkit-scrollbar{width:10px}
@@ -503,7 +509,7 @@ $err = $_GET['error'] ?? '';
   .comment-thread.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(111,156,255,.45),0 12px 28px rgba(39,68,126,.35)}
   .comment-composer{position:sticky;top:72px;border-style:dashed;background:rgba(17,31,66,.88);backdrop-filter:blur(10px);z-index:2}
   .comment-composer.floating{position:absolute;top:auto;left:0;right:0}
-  .composer-header{justify-content:space-between}
+  .composer-header{justify-content:space-between;position:relative;padding-right:36px}
   .row.compact{gap:8px}
   .share-bar{flex-wrap:wrap;justify-content:flex-end}
   .share-bar input{width:100%;max-width:420px}
@@ -621,9 +627,9 @@ $err = $_GET['error'] ?? '';
               <input type="hidden" name="end_line" value="1"/>
               <input type="hidden" name="kind" value="comment"/>
               <input type="hidden" name="suggestion" value=""/>
-              <div class="flex composer-header">
+              <div class="flex composer-header" style="position:relative">
                 <div class="muted">New comment</div>
-                <button type="button" class="pill close-editor" data-file="<?= $fi ?>" style="display:none" aria-label="Close">×</button>
+                <button type="button" class="close-editor" data-file="<?= $fi ?>" style="display:none" aria-label="Close">×</button>
               </div>
               <div class="space"></div>
               <div class="row compact">
@@ -964,6 +970,10 @@ function prepareSuggestionEditor(textarea){
     }
     gutter.innerHTML = html;
     gutter.scrollTop = textarea.scrollTop;
+    // Ensure textarea height expands to fit content up to a sensible max
+    textarea.style.height = 'auto';
+    const borderPad = 24; // approximate padding
+    textarea.style.height = Math.min(520, textarea.scrollHeight + borderPad) + 'px';
   };
 
   textarea.addEventListener('input', update);
