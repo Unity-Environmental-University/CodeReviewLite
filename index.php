@@ -498,10 +498,15 @@ $err = $_GET['error'] ?? '';
   .comment-thread.resolved{opacity:.82}
   .comment-thread.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(111,156,255,.45),0 12px 28px rgba(39,68,126,.35)}
   .comment-composer{position:sticky;top:72px;border-style:dashed;background:rgba(17,31,66,.88);backdrop-filter:blur(10px);z-index:2}
+  .comment-composer.floating{position:absolute;top:auto;left:0;right:0}
   .composer-header{justify-content:space-between}
   .row.compact{gap:8px}
   .share-bar{flex-wrap:wrap;justify-content:flex-end}
   .share-bar input{width:100%;max-width:420px}
+  .primary-button{display:inline-block;padding:10px 18px;border-radius:12px;background:linear-gradient(180deg,#3b66ff,#1f3fd6);border:1px solid #3c5ee0;box-shadow:0 8px 18px rgba(63,110,255,.28);color:var(--text);font-weight:600}
+  .primary-button:hover{text-decoration:none}
+  .primary-button:focus{outline:none;box-shadow:0 0 0 2px rgba(111,156,255,.35),0 8px 18px rgba(63,110,255,.28)}
+  .share-bar .primary-button{width:auto}
   @media (max-width:1100px){
     .wrap{padding:24px 16px}
     .file-stage{flex-direction:column}
@@ -566,6 +571,7 @@ $err = $_GET['error'] ?? '';
         <div class="muted">By <?= h($doc['author'] ?: 'Anonymous') ?> · Created <?= h($doc['created_at']) ?> · ID <?= h($doc['id']) ?></div>
       </div>
       <div class="flex share-bar">
+        <a class="primary-button" href="<?= h($_SERVER['PHP_SELF'] ?? '/') ?>">Go to homepage</a>
         <span class="pill">Share this link:</span>
         <input readonly value="<?= h((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']) ?>" onclick="this.select()"/>
       </div>
@@ -1050,6 +1056,7 @@ function resetForm(form){
   if (suggestionWrapper) { suggestionWrapper.style.display = 'none'; }
   const closeButton = form.querySelector('.close-editor');
   if (closeButton) { closeButton.style.display = 'none'; }
+  unsetFloatingComposer(form);
   clearHighlights();
   state.activeFile = null;
   state.startLine = null;
@@ -1079,9 +1086,7 @@ function openCommentPanel(form, file, start, end){
       prefillSuggestion(form, file, start, end);
     }
   });
-  if (typeof form.scrollIntoView === 'function') {
-    form.scrollIntoView({block:'nearest', behavior:'smooth'});
-  }
+  positionComposerNearSelection(form, file, start);
 }
 
 function scrollToLine(file, start, end){
@@ -1114,6 +1119,71 @@ function handleInitialHash(){
       scrollToLine(node.dataset.file, line);
     }
   }
+}
+
+// --- Floating composer positioning -----------------------------------------
+function positionComposerNearSelection(form, file, start){
+  try {
+    const fileId = String(file);
+    const lineEl = document.getElementById(`f${fileId}l${start}`);
+    const rail = document.getElementById(`comment-rail-${fileId}`);
+    if (!lineEl || !rail) { return; }
+
+    if (!form.classList.contains('floating')) {
+      form.classList.add('floating');
+    }
+
+    const lineRect = lineEl.getBoundingClientRect();
+    const stage = lineEl.closest('.file-stage');
+    const stageRect = stage ? stage.getBoundingClientRect() : null;
+    const withinStage = stageRect ? (lineRect.top - stageRect.top) : 0;
+    const topPx = Math.max(0, (rail.scrollTop || 0) + withinStage - 10);
+    form.style.top = `${topPx}px`;
+
+    ensureFloatingHandlers(form, fileId);
+  } catch (e) {
+    unsetFloatingComposer(form);
+  }
+}
+
+function ensureFloatingHandlers(form, fileId){
+  const key = `__floatingHandlers_${fileId}`;
+  if (form[key]) { return; }
+  const updater = () => {
+    const start = parseInt(form.querySelector('input[name="start_line"]').value, 10) || 1;
+    positionComposerNearSelection(form, fileId, start);
+  };
+  const rail = document.getElementById(`comment-rail-${fileId}`);
+  const codeOl = document.getElementById(`file${fileId}`);
+  const listeners = [];
+  if (rail) {
+    const fn = () => requestAnimationFrame(updater);
+    rail.addEventListener('scroll', fn, {passive:true});
+    listeners.push(['scroll', rail, fn]);
+  }
+  if (codeOl) {
+    const fn2 = () => requestAnimationFrame(updater);
+    codeOl.addEventListener('scroll', fn2, {passive:true});
+    listeners.push(['scroll', codeOl, fn2]);
+  }
+  const onResize = () => requestAnimationFrame(updater);
+  window.addEventListener('resize', onResize);
+  listeners.push(['resize', window, onResize]);
+  form[key] = listeners;
+}
+
+function unsetFloatingComposer(form){
+  form.classList.remove('floating');
+  form.style.top = '';
+  const fileId = String(form.dataset.file || '');
+  const key = `__floatingHandlers_${fileId}`;
+  const listeners = form[key];
+  if (listeners && Array.isArray(listeners)) {
+    listeners.forEach(([type, target, fn]) => {
+      try { target.removeEventListener(type, fn); } catch (_) {}
+    });
+  }
+  form[key] = null;
 }
 </script>
 </body>
