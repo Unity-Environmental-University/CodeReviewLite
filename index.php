@@ -815,7 +815,8 @@ document.querySelectorAll('.inline-toggle').forEach(cb => {
   const file = String(cb.dataset.file || '0');
   const key = `crl_inline_${file}`;
   const saved = localStorage.getItem(key);
-  if (saved === '1') { cb.checked = true; }
+  const inlinePreferred = saved !== '0';
+  cb.checked = inlinePreferred;
   cb.addEventListener('change', () => {
     localStorage.setItem(key, cb.checked ? '1' : '0');
     // Reposition composer if open for this file
@@ -1298,7 +1299,7 @@ function moveComposerInline(form, lineEl, rail){
   // Place form inside container and style as inline
   const file = String(form.dataset.file || '');
   const key = `crl_inline_${file}`;
-  const inlinePreferred = localStorage.getItem(key) === '1';
+  const inlinePreferred = localStorage.getItem(key) !== '0';
   if (inlinePreferred) {
     form.classList.add('inline');
     form.classList.remove('floating');
