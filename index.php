@@ -439,7 +439,9 @@ $err = $_GET['error'] ?? '';
   :root { --bg:#080b16; --card:#11182b; --muted:#8ea4c0; --text:#f1f5ff; --accent:#6f9cff; --ok:#1cd38a; --warn:#f6c85f; --danger:#ff6b6b; --border:#222f4c; --surface:#0c1324; }
   *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top,#0c1330 0%,#070913 60%,#06070c 100%);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Arial}
   a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
-  .wrap{max-width:1280px;margin:0 auto;padding:32px 36px 52px}
+  .wrap{width:min(1600px,96vw);margin:0 auto;padding:32px 36px 52px}
+  h1 a{color:inherit;text-decoration:none}
+  h1 a:hover{text-decoration:underline}
   .card{background:var(--card);border:1px solid var(--border);border-radius:18px;box-shadow:0 16px 40px rgba(3,8,20,.35);padding:22px;margin-bottom:22px;overflow:visible}
   h1,h2{margin:0 0 12px} h1{font-size:22px} h2{font-size:17px;color:#c3d4f5}
   .row{display:flex;gap:12px;flex-wrap:wrap}
@@ -454,8 +456,10 @@ $err = $_GET['error'] ?? '';
   .linenos{counter-reset: line; padding-left: 0; margin:0; background:#101a32;border:1px solid #1d2c4f;border-radius:14px;overflow:auto}
   .linenos li{display:block; white-space:pre; padding:8px 16px 8px 56px; position:relative; min-height:20px; line-height:1.35; scroll-margin-top:120px}
   .linenos li::before{counter-increment: line; content: counter(line); position:absolute; left:16px; top:8px; width:30px; text-align:right; color:#5f7195; padding-right:6px}
-  .code-line{cursor:pointer; transition:background .15s; overflow-x:auto}
+  .code-line{cursor:pointer; transition:background .15s; overflow-x:hidden}
+  .code-line.overflowing{overflow-x:auto}
   .code-line span{display:inline; white-space:pre}
+  .code-line span{tab-size:2;-moz-tab-size:2}
   .hl{background: rgba(122,162,255,0.12)}
   .comment{background:#121e35;border:1px solid #23365f;border-radius:14px;padding:14px;margin:0;box-shadow:0 10px 28px rgba(0,0,0,.25);word-break:break-word;overflow-wrap:break-word}
   .comment.small{font-size:12px;color:#b9c3d3}
@@ -470,10 +474,10 @@ $err = $_GET['error'] ?? '';
   .pill{padding:5px 12px;border-radius:999px;background:rgba(19,31,60,.6);border:1px solid rgba(111,156,255,.25);color:#cdd9ff}
   .suggestion{margin-top:10px;padding:10px;border-radius:10px;border:1px solid #26406c;background:#0b152b}
   .suggestion pre{margin:6px 0 0;white-space:pre-wrap; word-break:break-word; overflow:auto}
-  .mode-toggle{display:flex;gap:12px}
-  .mode-toggle label{display:flex;align-items:center;gap:6px;color:#b9c3d3;font-size:13px}
+  .mode-toggle{display:flex;gap:12px;flex-wrap:wrap}
+  .mode-toggle label{display:inline-flex;align-items:center;gap:6px;color:#b9c3d3;font-size:13px;white-space:nowrap}
   .mode-toggle input{margin:0}
-  .close-editor{cursor:pointer}
+  .close-editor{cursor:pointer;padding:2px 8px;line-height:1}
   .suggestion-fields textarea{width:100%;color:var(--text);font:12.5px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
   .code-editor{display:grid;grid-template-columns:50px 1fr;background:#0b1429;border:1px solid #2d416d;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(19,33,58,.4)}
   .code-editor .line-nums{background:#0a1223;color:#5f7195;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace;padding:12px 8px;text-align:right;user-select:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
@@ -521,7 +525,7 @@ $err = $_GET['error'] ?? '';
 <div class="wrap">
   <div class="card">
     <div class="row" style="align-items:center">
-      <div class="grow"><h1><?= h(APP_NAME) ?></h1><div class="muted">Paste code → share link → collect per-line comments. Perfect for Trello attachments.</div></div>
+      <div class="grow"><h1><a href="<?= h($_SERVER['PHP_SELF'] ?? '/') ?>"><?= h(APP_NAME) ?></a></h1><div class="muted">Paste code → share link → collect per-line comments. Perfect for Trello attachments.</div></div>
       <?php if ($doc): ?>
         <div><span class="badge <?= $doc['resolved'] ? 'ok' : '' ?>">Status: <?= $doc['resolved'] ? 'Resolved' : 'Open' ?></span></div>
       <?php endif; ?>
@@ -619,7 +623,7 @@ $err = $_GET['error'] ?? '';
               <input type="hidden" name="suggestion" value=""/>
               <div class="flex composer-header">
                 <div class="muted">New comment</div>
-                <button type="button" class="pill close-editor" data-file="<?= $fi ?>" style="display:none">Close</button>
+                <button type="button" class="pill close-editor" data-file="<?= $fi ?>" style="display:none" aria-label="Close">×</button>
               </div>
               <div class="space"></div>
               <div class="row compact">
@@ -776,6 +780,10 @@ document.querySelectorAll('.code-line').forEach(line => {
   line.addEventListener('mouseenter', onLineMouseEnter);
   line.addEventListener('mouseup', onLineMouseUp);
   line.addEventListener('click', e => e.preventDefault());
+  // Mark overflowing lines to show horizontal scrollbar only when needed
+  if (line.scrollWidth > line.clientWidth + 2) {
+    line.classList.add('overflowing');
+  }
 });
 
 document.addEventListener('mouseup', () => {
@@ -787,6 +795,26 @@ document.addEventListener('mouseup', () => {
 
 handleInitialHash();
 window.addEventListener('hashchange', handleInitialHash);
+window.addEventListener('resize', markOverflowingLinesThrottled, {passive:true});
+
+function markOverflowingLines(){
+  document.querySelectorAll('.code-line').forEach(line => {
+    if (line.scrollWidth > line.clientWidth + 2) {
+      line.classList.add('overflowing');
+    } else {
+      line.classList.remove('overflowing');
+    }
+  });
+}
+
+let __markOverflowTimer;
+function markOverflowingLinesThrottled(){
+  if (__markOverflowTimer) { cancelAnimationFrame(__markOverflowTimer); }
+  __markOverflowTimer = requestAnimationFrame(() => {
+    markOverflowingLines();
+    __markOverflowTimer = null;
+  });
+}
 
 function onLineMouseDown(event){
   event.preventDefault();
@@ -831,6 +859,9 @@ function finalizeSelection(){
   if (form) {
     openCommentPanel(form, file, Math.min(state.startLine, state.endLine), Math.max(state.startLine, state.endLine));
   }
+  // Help users with long lines: horizontally reveal content start
+  const targetLine = Math.min(state.startLine, state.endLine);
+  maybeScrollLineHorizontally(file, targetLine);
 }
 
 function updateSelection(file, start, end){
@@ -1099,6 +1130,8 @@ function scrollToLine(file, start, end){
     state.startLine = start;
     state.endLine = last;
     updateSelection(fileId, start, last);
+    // Adjust horizontal scroll for long lines
+    maybeScrollLineHorizontally(fileId, start);
   }
   return false;
 }
@@ -1184,6 +1217,48 @@ function unsetFloatingComposer(form){
     });
   }
   form[key] = null;
+}
+
+// --- Long line horizontal scroll assistance --------------------------------
+function maybeScrollLineHorizontally(file, line){
+  const fileId = String(file);
+  const li = document.getElementById(`f${fileId}l${line}`);
+  if (!li) { return; }
+  // Only if content overflows
+  if (li.scrollWidth <= li.clientWidth + 2) { return; }
+
+  const raw = li.getAttribute('data-raw') || '';
+  const firstIdx = getFirstNonWhitespaceIndex(raw);
+  const charWidth = measureMonoCharWidth(li);
+  const padChars = 2;
+  const targetChars = Math.max(0, firstIdx - padChars);
+  const targetLeft = Math.round(targetChars * charWidth);
+  // Smooth-ish adjustment without jank
+  li.scrollLeft = targetLeft;
+}
+
+function getFirstNonWhitespaceIndex(s){
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch !== ' ' && ch !== '\t') { return i; }
+  }
+  return 0;
+}
+
+function measureMonoCharWidth(referenceEl){
+  const cacheKey = '__charWidthCache';
+  if (!measureMonoCharWidth[cacheKey]) {
+    const probe = document.createElement('span');
+    // 100 m's to average widths; use same font context
+    probe.textContent = 'm'.repeat(100);
+    probe.style.visibility = 'hidden';
+    probe.style.whiteSpace = 'pre';
+    referenceEl.appendChild(probe);
+    const width = probe.getBoundingClientRect().width / 100;
+    referenceEl.removeChild(probe);
+    measureMonoCharWidth[cacheKey] = Math.max(1, width);
+  }
+  return measureMonoCharWidth[cacheKey];
 }
 </script>
 </body>
