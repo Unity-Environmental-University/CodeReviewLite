@@ -476,6 +476,8 @@ $err = $_GET['error'] ?? '';
   .space{height:8px}
   .sticky{position:sticky; top:-22px; background:rgba(13,21,42,.92); padding:12px; z-index:3; border:1px solid rgba(111,156,255,.15); border-radius:14px; backdrop-filter:blur(12px); margin-bottom:18px}
   .pill{padding:5px 12px;border-radius:999px;background:rgba(19,31,60,.6);border:1px solid rgba(111,156,255,.25);color:#cdd9ff}
+  .header-toggle{display:flex;align-items:center;gap:6px;color:#b9c3d3;font-size:12px}
+  .header-toggle input{margin:0}
   .suggestion{margin-top:10px;padding:10px;border-radius:10px;border:1px solid #26406c;background:#0b152b}
   .suggestion pre{margin:6px 0 0;white-space:pre-wrap; word-break:break-word; overflow:auto}
   .mode-toggle{display:flex;gap:12px;flex-wrap:wrap}
@@ -511,6 +513,7 @@ $err = $_GET['error'] ?? '';
   .comment-thread.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(111,156,255,.45),0 12px 28px rgba(39,68,126,.35)}
   .comment-composer{position:sticky;top:72px;border-style:dashed;background:rgba(17,31,66,.88);backdrop-filter:blur(10px);z-index:2}
   .comment-composer.floating{position:absolute;top:auto;left:0;right:0}
+  .comment-composer.inline{position:static}
   .composer-header{justify-content:space-between;position:relative;padding-right:36px}
   .row.compact{gap:8px}
   .share-bar{flex-wrap:wrap;justify-content:flex-end}
@@ -601,6 +604,9 @@ $err = $_GET['error'] ?? '';
         <strong><?= h($f['name']) ?></strong>
         <span class="pill mono">Lines: <?= count($lines) ?></span>
         <span class="pill mono">Open comments: <?= $openComments ?></span>
+        <label class="header-toggle" style="margin-left:auto">
+          <input type="checkbox" class="inline-toggle" data-file="<?= $fi ?>"> Inline composer
+        </label>
       </div>
       <div class="file-stage" data-file="<?= $fi ?>">
         <div class="code-column">
@@ -803,6 +809,24 @@ document.addEventListener('mouseup', () => {
 
 handleInitialHash();
 window.addEventListener('hashchange', handleInitialHash);
+
+// Initialize inline toggle preferences
+document.querySelectorAll('.inline-toggle').forEach(cb => {
+  const file = String(cb.dataset.file || '0');
+  const key = `crl_inline_${file}`;
+  const saved = localStorage.getItem(key);
+  if (saved === '1') { cb.checked = true; }
+  cb.addEventListener('change', () => {
+    localStorage.setItem(key, cb.checked ? '1' : '0');
+    // Reposition composer if open for this file
+    const form = forms.get(file);
+    if (form) {
+      const start = parseInt(form.querySelector('input[name="start_line"]').value, 10) || 1;
+      const end = parseInt(form.querySelector('input[name="end_line"]').value, 10) || start;
+      positionComposerNearSelection(form, file, end);
+    }
+  });
+});
 window.addEventListener('resize', markOverflowingLinesThrottled, {passive:true});
 
 function markOverflowingLines(){
@@ -1136,7 +1160,8 @@ function openCommentPanel(form, file, start, end){
       prefillSuggestion(form, file, start, end);
     }
   });
-  positionComposerNearSelection(form, file, start);
+  // Place the composer below the bottom of the selected range
+  positionComposerNearSelection(form, file, end);
 }
 
 function scrollToLine(file, start, end){
@@ -1174,16 +1199,15 @@ function handleInitialHash(){
 }
 
 // --- Floating composer positioning -----------------------------------------
-function positionComposerNearSelection(form, file, start){
+function positionComposerNearSelection(form, file, targetLine){
   try {
     const fileId = String(file);
-    const lineEl = document.getElementById(`f${fileId}l${start}`);
+    const lineEl = document.getElementById(`f${fileId}l${targetLine}`);
     const rail = document.getElementById(`comment-rail-${fileId}`);
     if (!lineEl || !rail) { return; }
 
-    if (!form.classList.contains('floating')) {
-      form.classList.add('floating');
-    }
+    // Move the composer inline just after the selected line
+    moveComposerInline(form, lineEl, rail);
 
     const lineRect = lineEl.getBoundingClientRect();
     const stage = lineEl.closest('.file-stage');
@@ -1236,6 +1260,65 @@ function unsetFloatingComposer(form){
     });
   }
   form[key] = null;
+  // If we had injected inline container, move composer back to rail
+  const rail = document.getElementById(`comment-rail-${fileId}`);
+  if (rail) {
+    const parent = form.parentElement;
+    if (parent && parent.classList.contains('inline-composer-container')) {
+      // Restore form to rail
+      form.classList.remove('inline');
+      if (rail.firstChild) {
+        rail.insertBefore(form, rail.firstChild);
+      } else {
+        rail.appendChild(form);
+      }
+      // Only remove our temporary wrapper if it's empty
+      if (parent.childElementCount === 0) {
+        parent.remove();
+      }
+    }
+  }
+}
+
+// Inline composer helpers
+function moveComposerInline(form, lineEl, rail){
+  // Ensure container exists right after line element
+  let container = document.getElementById(`${lineEl.id}-composer`);
+  if (!container) {
+    container = document.createElement('div');
+    container.id = `${lineEl.id}-composer`;
+    container.className = 'inline-composer-container';
+    // style container to align with code column width
+    container.style.margin = '6px 0 10px 0';
+    // Insert after the line element
+    const list = lineEl.parentNode;
+    // Insert after this line, but ensure we don't affect comment threads by only adding our container
+    if (lineEl.nextSibling) { list.insertBefore(container, lineEl.nextSibling); } else { list.appendChild(container); }
+  }
+  // Place form inside container and style as inline
+  const file = String(form.dataset.file || '');
+  const key = `crl_inline_${file}`;
+  const inlinePreferred = localStorage.getItem(key) === '1';
+  if (inlinePreferred) {
+    form.classList.add('inline');
+    form.classList.remove('floating');
+    container.appendChild(form);
+  } else {
+    // Float in rail near selection as fallback
+    form.classList.remove('inline');
+    if (!form.classList.contains('floating')) { form.classList.add('floating'); }
+    // approximate top position relative to rail scroll
+    const stage = lineEl.closest('.file-stage');
+    const stageRect = stage ? stage.getBoundingClientRect() : null;
+    const lineRect = lineEl.getBoundingClientRect();
+    const withinStage = stageRect ? (lineRect.top - stageRect.top) : 0;
+    form.style.top = Math.max(0, (rail.scrollTop || 0) + withinStage - 10) + 'px';
+    if (rail.firstChild) {
+      rail.insertBefore(form, rail.firstChild);
+    } else {
+      rail.appendChild(form);
+    }
+  }
 }
 
 // --- Long line horizontal scroll assistance --------------------------------

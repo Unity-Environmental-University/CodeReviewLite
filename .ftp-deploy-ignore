@@ -1,0 +1,18 @@
+# Upload nothing by default…
+*
+
+# …except index.php at the repo root
+!index.php
+
+# Never upload these
+.git/
+.github/
+.ftp-deploy-sync-state.json
+node_modules/
+vendor/
+.env
+.env.*
+
+# Explicitly ignore the repo's data folder so it never uploads
+data/
+data/**
