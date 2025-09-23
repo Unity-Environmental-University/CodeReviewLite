@@ -485,10 +485,12 @@ $err = $_GET['error'] ?? '';
   .close-editor:hover{color:var(--text);background:rgba(255,255,255,.06);border-color:#2b3a5b}
   .close-editor:focus{outline:none;box-shadow:0 0 0 2px rgba(111,156,255,.25)}
   .suggestion-fields textarea{width:100%;height:100%;display:block;color:var(--text);font:12.5px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace}
-  .code-editor{display:grid;grid-template-columns:56px 1fr;background:#0b1429;border:1px solid #2d416d;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(19,33,58,.4);min-height:220px}
-  .code-editor .line-nums{background:#0a1223;color:#5f7195;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace;padding:12px 8px;text-align:right;user-select:none;display:flex;flex-direction:column;gap:2px;overflow:hidden;align-self:stretch}
+  .code-editor{display:flex;background:#0b1429;border:1px solid #2d416d;border-radius:10px;overflow:hidden;box-shadow:inset 0 0 0 1px rgba(19,33,58,.4);min-height:240px}
+  .code-editor .line-nums{flex:0 0 40px;width:40px;background:#0a1223;color:#5f7195;font:12px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, "Liberation Mono", monospace;padding:12px 6px;text-align:right;user-select:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
   .code-editor .line-nums span{display:block}
-  .code-editor textarea{background:transparent;border:none;resize:vertical;padding:12px 14px 12px 10px;line-height:1.4;tab-size:2;min-height:220px;height:100%;width:100%;box-sizing:border-box;color:var(--text);white-space:pre;overflow:auto}
+  .code-editor textarea{flex:1 1 auto;align-self:stretch;background:transparent;border:none;resize:vertical;padding:12px 14px 12px 10px;line-height:1.4;tab-size:2;min-height:240px;height:auto;width:100%;box-sizing:border-box;color:var(--text);white-space:pre;overflow:auto}
+  .code-editor textarea::-webkit-scrollbar{height:10px}
+  .code-editor textarea::-webkit-scrollbar-thumb{background:#1f3155;border-radius:999px}
   .code-editor textarea:disabled{color:#6d7c9c}
   .code-editor textarea:focus{outline:none}
   .code-editor textarea::-webkit-scrollbar{width:10px}
@@ -970,6 +972,13 @@ function prepareSuggestionEditor(textarea){
     }
     gutter.innerHTML = html;
     gutter.scrollTop = textarea.scrollTop;
+    // Dynamically size gutter based on digit count
+    const digits = String(lines).length;
+    const base = 24; // base padding
+    const perDigit = 8; // approx monospace width
+    const width = Math.max(32, base + digits * perDigit);
+    gutter.style.width = width + 'px';
+    gutter.style.flexBasis = width + 'px';
     // Ensure textarea height expands to fit content up to a sensible max
     textarea.style.height = 'auto';
     const borderPad = 24; // approximate padding
