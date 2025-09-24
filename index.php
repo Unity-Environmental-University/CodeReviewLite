@@ -434,7 +434,8 @@ $err = $_GET['error'] ?? '';
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css" disabled>
 <style>
   :root { --bg:#080b16; --card:#11182b; --muted:#8ea4c0; --text:#f1f5ff; --accent:#6f9cff; --ok:#1cd38a; --warn:#f6c85f; --danger:#ff6b6b; --border:#222f4c; --surface:#0c1324; }
   *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at top,#0c1330 0%,#070913 60%,#06070c 100%);color:var(--text);font:14px/1.5 Inter,system-ui,Segoe UI,Roboto,Arial}
@@ -530,6 +531,26 @@ $err = $_GET['error'] ?? '';
     .comment-thread::before{display:none}
     .comment-pin{display:none}
   }
+  /* Light mode overrides */
+  html[data-theme="light"] body{background:radial-gradient(circle at top,#f7fafc 0%,#eef2f7 60%,#e9edf3 100%);color:var(--text)}
+  :root[data-theme="light"]{--bg:#ffffff;--card:#ffffff;--muted:#4b5565;--text:#1f2937;--accent:#1d4ed8;--ok:#16a34a;--warn:#b45309;--danger:#dc2626;--border:#e5e7eb;--surface:#f8fafc}
+  html[data-theme="light"] .card{background:var(--card);border-color:var(--border);box-shadow:0 8px 24px rgba(0,0,0,.08)}
+  html[data-theme="light"] .muted{color:#6b7280}
+  html[data-theme="light"] input,html[data-theme="light"] select,html[data-theme="light"] textarea,html[data-theme="light"] button{background:var(--surface);color:var(--text);border-color:#d1d5db}
+  html[data-theme="light"] input:focus,html[data-theme="light"] select:focus,html[data-theme="light"] textarea:focus{box-shadow:0 0 0 2px rgba(29,78,216,.2)}
+  html[data-theme="light"] .linenos{background:#f3f4f6;border-color:#e5e7eb}
+  html[data-theme="light"] .linenos::-webkit-scrollbar-thumb{background:#d1d5db}
+  html[data-theme="light"] .linenos::-webkit-scrollbar-track{background:#f3f4f6}
+  html[data-theme="light"] .linenos{scrollbar-color:#d1d5db #f3f4f6}
+  html[data-theme="light"] .linenos li::before{color:#9ca3af}
+  html[data-theme="light"] .hl{background: rgba(29,78,216,0.12)}
+  html[data-theme="light"] .comment{background:#f9fafb;border-color:#e5e7eb;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+  html[data-theme="light"] .badge{background:#f9fafb;border-color:#e5e7eb;color:#374151}
+  html[data-theme="light"] .pill{background:#f3f4f6;border-color:#e5e7eb;color:#374151}
+  html[data-theme="light"] .sticky{background:rgba(255,255,255,.92);border-color:rgba(29,78,216,.15)}
+  html[data-theme="light"] .code-editor{background:#f9fafb;border-color:#e5e7eb;box-shadow:inset 0 0 0 1px rgba(229,231,235,.7)}
+  html[data-theme="light"] .code-editor .line-nums{background:#f3f4f6;color:#6b7280}
+  html[data-theme="light"] .close-editor:hover{background:rgba(0,0,0,.04);border-color:#d1d5db;color:#111827}
 </style>
 </head>
 <body>
@@ -540,6 +561,9 @@ $err = $_GET['error'] ?? '';
       <?php if ($doc): ?>
         <div><span class="badge <?= $doc['resolved'] ? 'ok' : '' ?>">Status: <?= $doc['resolved'] ? 'Resolved' : 'Open' ?></span></div>
       <?php endif; ?>
+      <div class="header-toggle" style="margin-left:12px">
+        <label><input type="checkbox" id="themeToggle"> Light mode</label>
+      </div>
     </div>
   </div>
 
@@ -715,6 +739,42 @@ $err = $_GET['error'] ?? '';
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script>
+// --- Theme handling -----------------------------------------------------------
+(function(){
+  try {
+    const root = document.documentElement;
+    const saved = localStorage.getItem('crl_theme');
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    const initial = saved === 'light' || (!saved && prefersLight) ? 'light' : 'dark';
+    root.setAttribute('data-theme', initial);
+    const toggle = document.getElementById('themeToggle');
+    if (toggle) { toggle.checked = initial === 'light'; }
+    const darkCss = document.getElementById('hljs-dark');
+    const lightCss = document.getElementById('hljs-light');
+    if (lightCss && darkCss) {
+      if (initial === 'light') { lightCss.disabled = false; darkCss.disabled = true; } else { lightCss.disabled = true; darkCss.disabled = false; }
+    }
+  } catch (_) {}
+})();
+
+function setTheme(mode){
+  const m = mode === 'light' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', m);
+  try { localStorage.setItem('crl_theme', m); } catch(_) {}
+  const darkCss = document.getElementById('hljs-dark');
+  const lightCss = document.getElementById('hljs-light');
+  if (lightCss && darkCss) {
+    if (m === 'light') { lightCss.disabled = false; darkCss.disabled = true; } else { lightCss.disabled = true; darkCss.disabled = false; }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const toggle = document.getElementById('themeToggle');
+  if (toggle) {
+    toggle.addEventListener('change', () => setTheme(toggle.checked ? 'light' : 'dark'));
+  }
+});
+
 const decodeHtml = (() => {
   const textarea = document.createElement('textarea');
   return (str) => {
