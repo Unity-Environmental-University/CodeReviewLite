@@ -1,4 +1,4 @@
-name: Deploy PHP site to Bluehost (index.php only, preserve /data)
+name: Deploy PHP site to Bluehost (index.php and .user.ini, preserve /data)
 
 on:
   push:
@@ -15,20 +15,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Create a minimal deploy dir with only index.php
+      # Create a minimal deploy dir with index.php and its PHP settings
       - name: Prepare deploy folder
         run: |
           mkdir -p _deploy
           cp -f index.php _deploy/index.php
+          cp -f .user.ini _deploy/.user.ini
 
-      - name: Upload via FTP (only index.php; keep /data safe)
+      - name: Upload via FTP (index.php and .user.ini; keep /data safe)
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           server-dir: ${{ secrets.FTP_REMOTE_PATH }}   # e.g. /public_html/
-          local-dir: ./_deploy/                        # contains only index.php
+          local-dir: ./_deploy/                        # contains index.php and .user.ini
           dangerous-clean-slate: true                  # delete *except excluded* paths
           exclude: |
             data

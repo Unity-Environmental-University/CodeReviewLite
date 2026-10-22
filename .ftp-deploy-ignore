@@ -1,8 +1,9 @@
 # Upload nothing by default…
 *
 
-# …except index.php at the repo root
+# …except index.php and its PHP settings at the repo root
 !index.php
+!.user.ini
 
 # Never upload these
 .git/
