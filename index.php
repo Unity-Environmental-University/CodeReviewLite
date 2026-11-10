@@ -25,6 +25,11 @@ if (!headers_sent()) {
   header('Expires: 0');
 }
 
+// Resume an admin session only when admin is enabled and the browser already holds the cookie
+if (admin_enabled() && isset($_COOKIE[admin_session_name()])) {
+  start_admin_session();
+}
+
 // Helpers
 function ensure_data_dir(): void {
   if (is_dir(DATA_DIR) || @mkdir(DATA_DIR, 0775, true)) {
@@ -43,8 +48,16 @@ function fail_setup(string $message): void {
 }
 
 function uuid(): string { return bin2hex(random_bytes(8)); }
-function path_for(string $id): string { return DATA_DIR . '/' . $id . '.json'; }
-function comments_path_for(string $id): string { return DATA_DIR . '/' . $id . '-comments.json'; }
+// Review ids are always 16 lowercase hex chars (see uuid()); anything else must never reach a file path.
+function is_valid_id(string $id): bool { return preg_match('/^[a-f0-9]{16}$/D', $id) === 1; }
+function require_valid_id(string $id): string {
+  if (!is_valid_id($id)) {
+    abort_with(404, 'Not found');
+  }
+  return $id;
+}
+function path_for(string $id): string { return DATA_DIR . '/' . require_valid_id($id) . '.json'; }
+function comments_path_for(string $id): string { return DATA_DIR . '/' . require_valid_id($id) . '-comments.json'; }
 function load_json(string $path, $default) {
   if (!file_exists($path)) {
     return $default;
@@ -85,16 +98,70 @@ function save_json_atomic(string $path, array $data): bool {
 }
 function h(?string $s): string { return htmlspecialchars($s ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
 function now_iso(): string { return gmdate('Y-m-d\TH:i:s\Z'); }
+// Admin access: the token is submitted once via POST and kept in a session; it never appears in a URL.
+function admin_enabled(): bool { return is_string(ADMIN_DELETE_TOKEN) && ADMIN_DELETE_TOKEN !== ''; }
+function admin_session_name(): string { return 'crl_admin'; }
+function admin_fingerprint(): string { return hash('sha256', 'crl-admin|' . ADMIN_DELETE_TOKEN); }
+function start_admin_session(): bool {
+  if (session_status() === PHP_SESSION_ACTIVE) {
+    return true;
+  }
+  if (!admin_enabled() || headers_sent()) {
+    return false;
+  }
+  $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+  $dir = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/') . '/';
+  ini_set('session.use_strict_mode', '1');
+  ini_set('session.use_only_cookies', '1');
+  session_cache_limiter('');
+  session_name(admin_session_name());
+  session_set_cookie_params([
+    'lifetime' => 0,
+    'path' => $dir,
+    'secure' => $https,
+    'httponly' => true,
+    'samesite' => 'Strict',
+  ]);
+  return session_start();
+}
 function is_admin(): bool {
-  return ADMIN_DELETE_TOKEN && (($_GET['admin'] ?? '') === ADMIN_DELETE_TOKEN);
+  if (!admin_enabled() || session_status() !== PHP_SESSION_ACTIVE) {
+    return false;
+  }
+  $marker = $_SESSION['crl_admin'] ?? '';
+  return is_string($marker) && hash_equals(admin_fingerprint(), $marker);
+}
+function csrf_token(): string {
+  if (session_status() !== PHP_SESSION_ACTIVE) {
+    return '';
+  }
+  if (empty($_SESSION['crl_csrf']) || !is_string($_SESSION['crl_csrf'])) {
+    $_SESSION['crl_csrf'] = bin2hex(random_bytes(32));
+  }
+  return $_SESSION['crl_csrf'];
+}
+function require_admin_post(): void {
+  if (!is_post() || !is_admin()) {
+    abort_with(403, 'Forbidden');
+  }
+  $sent = post_param('csrf', '');
+  $expected = $_SESSION['crl_csrf'] ?? '';
+  if (!is_string($sent) || !is_string($expected) || $expected === '' || !hash_equals($expected, $sent)) {
+    abort_with(403, 'Forbidden');
+  }
 }
 function request_method(): string { return $_SERVER['REQUEST_METHOD'] ?? 'GET'; }
 function is_post(): bool { return request_method() === 'POST'; }
 function get_param(string $key, $default = null) { return $_GET[$key] ?? $default; }
 function post_param(string $key, $default = null) { return $_POST[$key] ?? $default; }
-function request_action(): string { return get_param('action', post_param('action', '')); }
-function request_id(): string { return get_param('id', post_param('id', '')); }
-function current_admin_token(): string { return $_GET['admin'] ?? ''; }
+function request_action(): string {
+  $action = get_param('action', post_param('action', ''));
+  return is_string($action) ? $action : '';
+}
+function request_id(): string {
+  $id = get_param('id', post_param('id', ''));
+  return is_string($id) && is_valid_id($id) ? $id : '';
+}
 function redirect_self(array $query = [], string $anchor = ''): void {
   $path = $_SERVER['PHP_SELF'] ?? '';
   if ($query) {
@@ -106,6 +173,10 @@ function redirect_self(array $query = [], string $anchor = ''): void {
   header('Location: ' . $path);
   exit;
 }
+function redirect_to_review(): void {
+  $id = request_id();
+  redirect_self($id !== '' ? ['id' => $id] : []);
+}
 function abort_with(int $status, string $message): void {
   http_response_code($status);
   echo $message;
@@ -115,7 +186,9 @@ function enforce_create_token(): void {
   if (!REQUIRE_CREATE_TOKEN) {
     return;
   }
-  if (get_param('token', '') === CREATE_TOKEN) {
+  // Fail closed: an empty CREATE_TOKEN must not let every request through.
+  $token = get_param('token', '');
+  if (is_string($token) && is_string(CREATE_TOKEN) && CREATE_TOKEN !== '' && hash_equals(CREATE_TOKEN, $token)) {
     return;
   }
   abort_with(403, 'Forbidden: invalid token');
@@ -125,13 +198,6 @@ function clamp_text(string $text): string {
     return $text;
   }
   return substr($text, 0, MAX_SIZE);
-}
-function with_admin(array $params): array {
-  $token = current_admin_token();
-  if ($token !== '') {
-    $params['admin'] = $token;
-  }
-  return $params;
 }
 function language_hint_for(string $filename, string $global): string {
   $map = [
@@ -191,10 +257,21 @@ switch ($action) {
     handle_comment();
     break;
   case 'resolve':
+    // Old GET links no longer change state; send them to the plain review URL.
+    if (!is_post()) { redirect_to_review(); }
     handle_resolve();
     break;
   case 'delete':
+    if (!is_post()) { redirect_to_review(); }
     handle_delete();
+    break;
+  case 'admin_login':
+    if (!is_post()) { break; }
+    handle_admin_login();
+    break;
+  case 'admin_logout':
+    if (!is_post()) { break; }
+    handle_admin_logout();
     break;
 }
 
@@ -296,6 +373,9 @@ function handle_comment(): void {
   if ($id === '') {
     abort_with(400, 'Bad request');
   }
+  if (!is_valid_id($id)) {
+    abort_with(404, 'Not found');
+  }
 
   $doc = load_json(path_for($id), null);
   if (!$doc) {
@@ -348,20 +428,21 @@ function handle_comment(): void {
     abort_with(500, 'Failed to save comment');
   }
 
-  redirect_self(with_admin(['id' => $id]), 'f' . $fileIndex . 'l' . $line);
+  redirect_self(['id' => $id], 'f' . $fileIndex . 'l' . $line);
 }
 
 function handle_resolve(): void {
-  if (!is_admin()) {
-    abort_with(403, 'Forbidden');
-  }
+  require_admin_post();
 
-  $id = trim((string) get_param('id', ''));
+  $id = trim((string) post_param('id', ''));
   if ($id === '') {
     abort_with(400, 'Bad request');
   }
+  if (!is_valid_id($id)) {
+    abort_with(404, 'Not found');
+  }
 
-  $commentId = trim((string) get_param('cid', ''));
+  $commentId = trim((string) post_param('cid', ''));
   if ($commentId !== '') {
     $comments = load_json(comments_path_for($id), []);
     $updated = false;
@@ -387,21 +468,58 @@ function handle_resolve(): void {
     }
   }
 
-  redirect_self(with_admin(['id' => $id]));
+  redirect_self(['id' => $id]);
 }
 
 function handle_delete(): void {
-  if (!is_admin()) {
-    abort_with(403, 'Forbidden');
-  }
+  require_admin_post();
 
-  $id = trim((string) get_param('id', ''));
+  $id = trim((string) post_param('id', ''));
   if ($id !== '') {
+    if (!is_valid_id($id)) {
+      abort_with(404, 'Not found');
+    }
     @unlink(path_for($id));
     @unlink(comments_path_for($id));
   }
 
-  redirect_self(with_admin([]));
+  redirect_self([]);
+}
+
+function handle_admin_login(): void {
+  if (!admin_enabled()) {
+    abort_with(403, 'Forbidden');
+  }
+  $token = post_param('admin_token', '');
+  if (!is_string($token) || !hash_equals(ADMIN_DELETE_TOKEN, $token)) {
+    abort_with(403, 'Forbidden');
+  }
+  if (!start_admin_session()) {
+    abort_with(500, 'Unable to start admin session');
+  }
+  session_regenerate_id(true);
+  $_SESSION['crl_admin'] = admin_fingerprint();
+  $_SESSION['crl_csrf'] = bin2hex(random_bytes(32));
+
+  redirect_to_review();
+}
+
+function handle_admin_logout(): void {
+  require_admin_post();
+
+  $_SESSION = [];
+  $cookie = session_get_cookie_params();
+  setcookie(session_name(), '', [
+    'expires' => time() - 3600,
+    'path' => $cookie['path'],
+    'domain' => $cookie['domain'],
+    'secure' => $cookie['secure'],
+    'httponly' => $cookie['httponly'],
+    'samesite' => $cookie['samesite'] ?? 'Strict',
+  ]);
+  session_destroy();
+
+  redirect_to_review();
 }
 
 function group_comments_by_file(array $comments): array {
@@ -424,7 +542,8 @@ $id = request_id();
 $doc = $id !== '' ? load_json(path_for($id), null) : null;
 $comments = $id !== '' ? load_json(comments_path_for($id), []) : [];
 $commentsByFile = group_comments_by_file(is_array($comments) ? $comments : []);
-$err = $_GET['error'] ?? '';
+$err = get_param('error', '');
+$err = is_string($err) ? $err : '';
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -471,6 +590,8 @@ $err = $_GET['error'] ?? '';
   .badge{display:inline-block;border-radius:999px;padding:3px 9px;font-size:12px;border:1px solid #2d3b60;background:#0f1630}
   .ok{color:#0fd58a;border-color:#0fd58a33}
   .badge.edit{color:#7aa2ff;border-color:#7aa2ff55}
+  .admin-action{display:inline;margin:0}
+  .admin-action button.badge{width:auto;color:var(--accent)}
   .muted{color:#9db0c6}
   .right{float:right}
   .flex{display:flex;gap:8px;align-items:center}
@@ -612,7 +733,7 @@ $err = $_GET['error'] ?? '';
       <div class="flex share-bar">
         <a class="primary-button" href="<?= h($_SERVER['PHP_SELF'] ?? '/') ?>">Go to homepage</a>
         <span class="pill">Share this link:</span>
-        <input readonly value="<?= h((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI']) ?>" onclick="this.select()"/>
+        <input readonly value="<?= h((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . explode('?', $_SERVER['REQUEST_URI'], 2)[0] . '?id=' . rawurlencode($doc['id'])) ?>" onclick="this.select()"/>
       </div>
     </div>
   </div>
@@ -714,7 +835,13 @@ $err = $_GET['error'] ?? '';
                 <?php endif; ?>
                 <?php if (is_admin() && !$c['resolved']): ?>
                   <div class="space"></div>
-                  <a class="badge" href="?action=resolve&id=<?= h($doc['id']) ?>&cid=<?= h($c['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>">Mark resolved</a>
+                  <form class="admin-action" method="post" action="?id=<?= h(rawurlencode($doc['id'])) ?>">
+                    <input type="hidden" name="action" value="resolve"/>
+                    <input type="hidden" name="id" value="<?= h($doc['id']) ?>"/>
+                    <input type="hidden" name="cid" value="<?= h($c['id']) ?>"/>
+                    <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"/>
+                    <button type="submit" class="badge">Mark resolved</button>
+                  </form>
                 <?php endif; ?>
               </div>
             <?php endforeach; ?>
@@ -727,11 +854,36 @@ $err = $_GET['error'] ?? '';
   <div class="card">
     <div class="flex">
       <?php if (is_admin()): ?>
-        <a class="badge" href="?action=resolve&id=<?= h($doc['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>">Toggle Resolved</a>
-        <a class="badge" style="color:#ff9595;border-color:#ff9595" href="?action=delete&id=<?= h($doc['id']) ?>&admin=<?= h($_GET['admin'] ?? '') ?>" onclick="return confirm('Delete this review permanently?')">Delete</a>
+        <form class="admin-action" method="post" action="?id=<?= h(rawurlencode($doc['id'])) ?>">
+          <input type="hidden" name="action" value="resolve"/>
+          <input type="hidden" name="id" value="<?= h($doc['id']) ?>"/>
+          <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"/>
+          <button type="submit" class="badge">Toggle Resolved</button>
+        </form>
+        <form class="admin-action" method="post" action="?id=<?= h(rawurlencode($doc['id'])) ?>" onsubmit="return confirm('Delete this review permanently?')">
+          <input type="hidden" name="action" value="delete"/>
+          <input type="hidden" name="id" value="<?= h($doc['id']) ?>"/>
+          <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"/>
+          <button type="submit" class="badge" style="color:#ff9595;border-color:#ff9595">Delete</button>
+        </form>
+        <form class="admin-action" method="post" action="?id=<?= h(rawurlencode($doc['id'])) ?>">
+          <input type="hidden" name="action" value="admin_logout"/>
+          <input type="hidden" name="csrf" value="<?= h(csrf_token()) ?>"/>
+          <button type="submit" class="badge">Admin sign out</button>
+        </form>
       <?php endif; ?>
       <span class="muted">Tip: click or drag on code to select lines, then choose comment or suggest edit.</span>
     </div>
+    <?php if (admin_enabled() && !is_admin()): ?>
+      <details style="margin-top:12px">
+        <summary class="muted">Admin</summary>
+        <form class="flex" method="post" action="?id=<?= h(rawurlencode($doc['id'])) ?>" style="margin-top:8px">
+          <input type="hidden" name="action" value="admin_login"/>
+          <input type="password" name="admin_token" autocomplete="current-password" placeholder="Admin token" required style="max-width:260px"/>
+          <button type="submit" style="width:auto">Sign in</button>
+        </form>
+      </details>
+    <?php endif; ?>
   </div>
 
 <?php endif; ?>

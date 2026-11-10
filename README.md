@@ -38,9 +38,9 @@ All options live near the top of `index.php` and can be overridden via `define()
 | `DATA_DIR` | `__DIR__ . '/data'` | Location where review and comment JSON files are stored |
 | `ALLOW_FILE_UPLOADS` | `false` | When `true`, enables file uploads in addition to pasted snippets |
 | `REQUIRE_CREATE_TOKEN` | `false` | Gate review creation behind a shared secret token |
-| `CREATE_TOKEN` | `''` | Token value expected when `REQUIRE_CREATE_TOKEN` is enabled |
+| `CREATE_TOKEN` | `''` | Token value expected (as `?token=`) when `REQUIRE_CREATE_TOKEN` is enabled; if left empty, creation is refused |
 | `ALLOW_ANON_COMMENTS` | `true` | Allow comments without a name; set to `false` to require identification |
-| `ADMIN_DELETE_TOKEN` | `''` | Token used to unlock admin controls (append `?admin=TOKEN` to URLs) |
+| `ADMIN_DELETE_TOKEN` | `''` | Token used to unlock admin controls. Sign in from the "Admin" box at the bottom of a review page; the token is sent by POST and kept in a session cookie, never in the URL |
 | `MAX_FILES` | `10` | Maximum number of files per review |
 | `MAX_SIZE` | `500 * 1024` | Maximum bytes stored per file or suggestion |
 
