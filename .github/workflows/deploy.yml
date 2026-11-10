@@ -30,7 +30,16 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           server-dir: ${{ secrets.FTP_REMOTE_PATH }}   # e.g. /public_html/
           local-dir: ./_deploy/                        # contains index.php and .user.ini
-          dangerous-clean-slate: true                  # delete *except excluded* paths
+          # NEVER set this to true. Clean-slate wipes ALL of server-dir before
+          # uploading, including the live data/ folder (all reviews and
+          # comments); `exclude` does NOT protect server files from it.
+          # With it off, the action syncs incrementally against its
+          # .ftp-deploy-sync-state.json and only deletes files it uploaded
+          # itself (index.php, .user.ini), so data/ is never touched.
+          dangerous-clean-slate: false
+          # Ignored by dangerous-clean-slate. In incremental mode it also stops
+          # the action from deleting matching server paths, so keep it as a
+          # second guard for data/.
           exclude: |
             data
             data/**
